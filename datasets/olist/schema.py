@@ -93,6 +93,7 @@ OBSERVATION_FIELDS = {
 }
 FIELD_INDEX = {
     field: {**entry, "unit": None, "filterable": entry["groupable"],
+            "value_type": "number" if field in {"purchase_hour", "payment_installments", "customer_zip_code_prefix", "seller_zip_code_prefix"} else "string",
             "allowed_ops": ["eq", "neq", "gt", "gte", "lt", "lte", "in", "between", "is_null", "is_not_null"],
             "observation_units": ["order", "item"] if entry["grain"] == "order" else ["item"]}
     for field, entry in DIMENSION_INDEX.items()
@@ -101,6 +102,7 @@ for _unit, _fields in OBSERVATION_FIELDS.items():
     for _field, _measure_unit in _fields.items():
         FIELD_INDEX[_field] = {"field": _field, "label": _field.replace("_", " ").title(),
                                 "type": "quantitative", "grain": _unit, "unit": _measure_unit,
+                                "category": "product" if _unit == "item" else "order",
                                 "groupable": False, "filterable": True, "column": _field,
                                 "allowed_ops": ["eq", "neq", "gt", "gte", "lt", "lte", "in", "between", "is_null", "is_not_null"],
                                 "observation_units": [_unit]}

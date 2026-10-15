@@ -11,11 +11,20 @@ def test_filter_types_and_boundaries():
     values = normalize_filters([{"field": "customer_state", "op": "in", "value": ["SP", "RJ"]}], FIELD_INDEX)
     assert compile_filters(values, FIELD_INDEX) == (['"customer_state" IN (?, ?)'], ["SP", "RJ"])
     for bad in ([{"field": "customer_state", "op": "in", "value": "SP"}],
+                [{"field": "customer_state", "op": "eq"}],
+                [{"field": "customer_state", "op": "eq", "value": 1}],
                 [{"field": "price", "op": "gte", "value": True}],
                 [{"field": "order_date", "op": "eq", "value": "not-a-date"}]):
         with pytest.raises(ValueError):
             normalize_filters(bad, FIELD_INDEX)
     assert compile_filters(normalize_filters([{"field": "price", "op": "between", "value": [1, 2]}], FIELD_INDEX), FIELD_INDEX) == (['"price" BETWEEN ? AND ?'], [1, 2])
+
+
+def test_conflicting_scope_is_not_an_empty_result():
+    from refactor_next.datasets.olist.query_common import validate_filter_conflicts
+    with pytest.raises(ValueError, match="FILTER_CONFLICT"):
+        validate_filter_conflicts([{"field": "customer_state", "op": "eq", "value": "SP"},
+                                   {"field": "customer_state", "op": "eq", "value": "RJ"}])
 
 
 def test_observation_registry():
@@ -42,5 +51,10 @@ def test_result_contract_legacy_and_typed():
     assert DatasetAdapter(_ResultInterface(base)).execute("query", {})["success"]
     malformed = {**base, "result_kind": "box_summary", "metadata": {}}
     assert not DatasetAdapter(_ResultInterface(malformed)).execute("query", {})["success"]
+    wrong_types = {**base, "result_kind": "histogram", "metadata": {},
+                   "columns": {"bin_start": {"type": "nominal"}, "bin_end": {"type": "quantitative"},
+                               "count": {"type": "quantitative"}, "proportion": {"type": "quantitative"}},
+                   "rows": []}
+    assert not DatasetAdapter(_ResultInterface(wrong_types)).execute("query", {})["success"]
     nonfinite = {**base, "rows": [{"x": float("inf")}]}
     assert not DatasetAdapter(_ResultInterface(nonfinite)).execute("query", {})["success"]

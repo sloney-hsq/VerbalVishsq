@@ -154,8 +154,8 @@ def test_standalone_loader_exposes_only_two_exploration_tools_and_cleans_modules
     ds = _load(olist_csvs)
     added = {name for name in set(sys.modules) - before if name.startswith("trusted_dataset_")}
     try:
-        assert [definition["name"] for definition in ds.definitions] == ["aggregate", "compare_segments"]
-        assert len(added) == 5  # interface plus its four file-loaded sibling modules
+        assert [definition["name"] for definition in ds.definitions] == ["aggregate", "compare_segments", "distribution", "relationship"]
+        assert len(added) == 7  # interface plus six file-loaded sibling modules
         assert ds.description["default_scope"] == {"order_status": "delivered"}
     finally:
         ds.close()
@@ -416,7 +416,7 @@ def test_validation_rejects_unregistered_fields_bad_sort_and_one_segment(olist_c
         assert not ds.execute("aggregate", {"group_by": ["product_id"], "metrics": ["revenue"]})["success"]
         assert not ds.execute("aggregate", {"group_by": ["customer_state"], "metrics": ["revenue"], "sort": {"field": "item_count", "direction": "desc"}})["success"]
         assert not ds.execute("compare_segments", {"segments": [{"customer_state": "RJ"}], "metrics": ["revenue"]})["success"]
-        assert not ds.execute("aggregate", {"group_by": ["customer_state", "order_month"], "metrics": ["revenue"]})["success"]
+        assert ds.execute("aggregate", {"group_by": ["customer_state", "order_month"], "metrics": ["revenue"]})["success"]
         assert not ds.execute("aggregate", {"group_by": [], "metrics": ["order_count", "item_count", "revenue", "freight_value", "avg_order_value"]})["success"]
         injection = _aggregate(ds, metrics=("order_count",), filters=[{"field": "customer_state", "op": "eq", "value": "RJ' OR 1=1 --"}])
         assert injection["rows"] == [{"order_count": 0}]
@@ -460,7 +460,7 @@ def test_aggregate_description_matches_one_group_limit(olist_csvs):
     ds = _load(olist_csvs)
     try:
         aggregate = next(definition for definition in ds.definitions if definition["name"] == "aggregate")
-        assert "zero or one" in aggregate["description"]
+        assert "zero to two" in aggregate["description"]
         assert "three" not in aggregate["description"]
     finally:
         ds.close()

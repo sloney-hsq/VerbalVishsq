@@ -107,6 +107,14 @@ class DatasetAdapter:
                     if kind is not None:
                         if kind not in required or not isinstance(result.get('metadata'), dict) or not required[kind] <= columns.keys():
                             raise ValueError('Invalid typed result contract')
+                        numeric = {'histogram': {'bin_start', 'bin_end', 'count', 'proportion'},
+                                   'box_summary': required['box_summary'],
+                                   'points': {'x_value', 'y_value'},
+                                   'binned_2d': required['binned_2d']} .get(kind, set())
+                        if any(columns[name]['type'] != 'quantitative' for name in numeric):
+                            raise ValueError('Invalid typed numeric columns')
+                        if kind in {'histogram', 'box_summary', 'points', 'binned_2d'} and result['metadata'].get('observation_unit') not in {'order', 'item'}:
+                            raise ValueError('Invalid observation metadata')
                     for row in rows:
                         if not isinstance(row, dict) or set(row) != set(columns):
                             raise ValueError('Row and column schema mismatch')
@@ -129,8 +137,13 @@ class DatasetAdapter:
                     raise ValueError('Failure requires structured error')
                 return result
             except Exception as exc:
+                message = str(exc)
+                code = message.split(":", 1)[0]
+                if code not in {'INVALID_FILTER_VALUE', 'FILTER_CONFLICT', 'INCOMPATIBLE_GRAIN',
+                                'INCOMPATIBLE_ENCODING', 'RESULT_TOO_LARGE', 'INVALID_SELECTION', 'STALE_SOURCE_VIEW'}:
+                    code = 'dataset_error'
                 return {'success': False, 'dataset_version': self._version,
-                        'error': {'code': 'dataset_error', 'message': str(exc)}}
+                        'error': {'code': code, 'message': message}}
 
     def close(self):
         with self._lock:

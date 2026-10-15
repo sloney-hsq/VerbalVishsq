@@ -13,6 +13,8 @@ def _needs_item_source(fields, dimension_index):
 
 
 def _filter_sql(filters, dimension_index):
+    if globals().get("COMMON") is not None:
+        return COMMON.compile_filters(filters, dimension_index)
     clauses = []
     params = []
     for condition in filters:
@@ -186,7 +188,41 @@ def build_aggregate(arguments, scope, dimension_index, metric_index):
     clauses.extend(time_clauses)
     params.extend(time_params)
     select_group_order, group_order_by = _group_order_select(source, group_by, dimension_index)
-    final_select, final_group = _final_sql(group_by, metrics)
+    having = arguments.get("having", [])
+    if not isinstance(having, list):
+        raise ValueError("INVALID_FILTER_VALUE: having must be a list")
+    additional = []
+    having_clauses, having_params = [], []
+    for condition in having:
+        if not isinstance(condition, dict) or set(condition) != {"field", "op", "value"} or condition["field"] not in metric_index:
+            raise ValueError("INVALID_FILTER_VALUE: invalid having metric")
+        field, op, value = condition["field"], condition["op"], condition["value"]
+        if field not in metrics and field not in additional:
+            additional.append(field)
+        if op == "between":
+            if not isinstance(value, list) or len(value) != 2 or any(type(v) not in (int, float) for v in value) or value[0] > value[1]:
+                raise ValueError("INVALID_FILTER_VALUE: invalid having range")
+            having_clauses.append(f"{_q(field)} BETWEEN ? AND ?")
+            having_params.extend(value)
+        elif op in {"eq", "neq", "gt", "gte", "lt", "lte"} and type(value) in (int, float):
+            sign = {"eq": "=", "neq": "<>", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[op]
+            having_clauses.append(f"{_q(field)} {sign} ?")
+            having_params.append(value)
+        else:
+            raise ValueError("INVALID_FILTER_VALUE: invalid having condition")
+    final_select, final_group = _final_sql(group_by, [*metrics, *additional])
+    top_k = arguments.get("top_k")
+    rank_sql = "chosen AS (SELECT * FROM group_order)"
+    if top_k is not None:
+        if (not isinstance(top_k, dict) or set(top_k) != {"dimension", "metric", "k", "direction"}
+                or top_k["dimension"] not in group_by or top_k["metric"] not in metric_index
+                or type(top_k["k"]) is not int or not 1 <= top_k["k"] <= 50
+                or top_k["direction"] not in {"asc", "desc"}):
+            raise ValueError("INVALID_FILTER_VALUE: invalid top_k")
+        dim = _q(top_k["dimension"])
+        rank_sql = (f"ranked AS (SELECT {dim}, {METRIC_SQL[top_k['metric']]} AS rank_value FROM group_order "
+                    f"GROUP BY {dim} ORDER BY rank_value {top_k['direction'].upper()} NULLS LAST, {dim} ASC LIMIT {top_k['k']}), "
+                    f"chosen AS (SELECT group_order.* FROM group_order JOIN ranked USING ({dim}))")
     sort = arguments.get("sort")
     if sort is not None:
         if sort["field"] not in {*group_by, *metrics}:
@@ -197,20 +233,22 @@ def build_aggregate(arguments, scope, dimension_index, metric_index):
     else:
         order = ""
     limit = arguments.get("limit", 100)
+    visible = ", ".join(_q(field) for field in [*group_by, *metrics])
     sql = f"""
         WITH group_order AS (
             SELECT {select_group_order}
             FROM {source}
             WHERE {' AND '.join(clauses) if clauses else 'TRUE'}
             GROUP BY {group_order_by}
+        ), {rank_sql}, aggregated AS (
+            SELECT {final_select} FROM chosen {final_group}
         )
-        SELECT {final_select}
-        FROM group_order
-        {final_group}
+        SELECT {visible} FROM aggregated
+        {'WHERE ' + ' AND '.join(having_clauses) if having_clauses else ''}
         {order}
         LIMIT ?
     """
-    return sql, [*params, limit + 1], [*group_by, *metrics], limit
+    return sql, [*params, *having_params, limit + 1], [*group_by, *metrics], limit
 
 
 def build_segments(arguments, scope, dimension_index, metric_index):

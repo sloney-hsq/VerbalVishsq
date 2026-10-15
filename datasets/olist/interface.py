@@ -59,6 +59,8 @@ class Olist:
             self.common = self._load("query_common")
             self.queries = self._load("queries")
             self.queries.COMMON = self.common
+            self.distributions = self._load("distributions")
+            self.relationships = self._load("relationships")
             if not config.get("data_dir"):
                 raise ValueError("Olist requires configured data_dir")
             directory = Path(config["data_dir"]).resolve(strict=True)
@@ -352,7 +354,14 @@ class Olist:
     def tool_definitions(self):
         dimensions, metrics = list(self.schema.GROUPABLE_DIMENSIONS), list(self.metrics.METRIC_INDEX)
         aggregate = {"group_by": {"type": "array", "items": {"type": "string", "enum": dimensions},
-                                  "minItems": 0, "maxItems": 1, "uniqueItems": True}, **self._common_properties(),
+                                  "minItems": 0, "maxItems": 2, "uniqueItems": True}, **self._common_properties(),
+                     "having": {"type": "array", "items": {"type": "object", "properties": {
+                         "field": {"type": "string", "enum": metrics}, "op": {"type": "string", "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "between"]}, "value": {}},
+                         "required": ["field", "op", "value"], "additionalProperties": False}},
+                     "top_k": {"type": "object", "properties": {"dimension": {"type": "string", "enum": dimensions},
+                         "metric": {"type": "string", "enum": metrics}, "k": {"type": "integer", "minimum": 1, "maximum": 50},
+                         "direction": {"type": "string", "enum": ["asc", "desc"]}},
+                         "required": ["dimension", "metric", "k", "direction"], "additionalProperties": False},
                      "sort": {"type": "object", "properties": {
                          "field": {"type": "string", "enum": [*dimensions, *metrics]},
                          "direction": {"type": "string", "enum": ["asc", "desc"]},
@@ -362,15 +371,48 @@ class Olist:
         segment_properties.update({"name": {"type": "string"}, "label": {"type": "string"}})
         segment = {"type": "object", "properties": segment_properties,
                    "anyOf": [{"required": [field]} for field in dimensions], "additionalProperties": False}
+        typed_segment = {"type": "object", "properties": {"id": {"type": "string"}, "label": {"type": "string"},
+            "filters": {"type": "array", "items": self._filter_schema()}}, "required": ["id", "label", "filters"], "additionalProperties": False}
         comparison = {"segments": {"type": "array", "items": segment, "minItems": 2, "maxItems": 20},
-                      **self._common_properties()}
+                      **self._common_properties(),
+                      "breakdown": {"type": "string", "enum": [*dimensions, "review_score"]},
+                      "normalization": {"type": "string", "enum": ["none", "within_segment"]}}
+        comparison["segments"]["items"] = {"oneOf": [segment, typed_segment]}
+        numeric_order = list(self.schema.OBSERVATION_FIELDS["order"])
+        numeric_item = list(self.schema.OBSERVATION_FIELDS["item"])
+        distribution = {"unit": {"type": "string", "enum": ["order", "item"]},
+            "field": {"type": "string", "enum": [*numeric_order, *numeric_item]},
+            "group_by": {"type": ["string", "array"], "enum": dimensions},
+            "output": {"type": "string", "enum": ["histogram", "box_summary"]},
+            "bins": {"type": "object", "properties": {"edges": {"type": "array", "items": {"type": "number"}},
+                "step": {"type": "number"}, "count": {"type": "integer"}}, "additionalProperties": False},
+            "filters": {"type": "array", "items": self._filter_schema()},
+            "time_range": self._common_properties()["time_range"]}
+        distribution["group_by"] = {"oneOf": [{"type": "string", "enum": dimensions},
+                                               {"type": "array", "items": {"type": "string", "enum": dimensions}, "maxItems": 1}]}
+        relationship = {"unit": {"type": "string", "enum": ["order", "item"]},
+            "x": {"type": "string", "enum": [*numeric_order, *numeric_item]},
+            "y": {"type": "string", "enum": [*numeric_order, *numeric_item]},
+            "group_by": distribution["group_by"], "representation": {"type": "string", "enum": ["points", "binned_2d"]},
+            "sampling": {"type": "object", "properties": {"max_points": {"type": "integer", "minimum": 1, "maximum": 5000},
+                "seed": {"type": "integer"}}, "additionalProperties": False},
+            "bins": {"type": "object", "properties": {"x_count": {"type": "integer", "minimum": 1, "maximum": 50},
+                "y_count": {"type": "integer", "minimum": 1, "maximum": 50}}, "additionalProperties": False},
+            "filters": {"type": "array", "items": self._filter_schema()},
+            "time_range": self._common_properties()["time_range"]}
         return [
-            {"name": "aggregate", "description": "Aggregate registered metrics across zero or one semantic dimension.",
+            {"name": "aggregate", "description": "Aggregate registered metrics across zero to two semantic dimensions.",
              "read_only": True, "parameters": {"type": "object", "properties": aggregate,
                                                   "required": ["group_by", "metrics"], "additionalProperties": False}},
             {"name": "compare_segments", "description": "Compare direct dimension segments with common metrics and filters.",
              "read_only": True, "parameters": {"type": "object", "properties": comparison,
                                                   "required": ["segments", "metrics"], "additionalProperties": False}},
+            {"name": "distribution", "description": "Full-data histogram or box summary at order or item grain.",
+             "read_only": True, "parameters": {"type": "object", "properties": distribution,
+                 "required": ["unit", "field", "output"], "additionalProperties": False}},
+            {"name": "relationship", "description": "Paired points or complete two-dimensional bins.",
+             "read_only": True, "parameters": {"type": "object", "properties": relationship,
+                 "required": ["unit", "x", "y", "representation"], "additionalProperties": False}},
         ]
 
     def _columns(self, names):
@@ -386,17 +428,82 @@ class Olist:
                 columns[name] = {key: entry[key] for key in ("type", "label", "description", "grain", "unit", "category")}
         return columns
 
+    def _execute_typed_segments(self, arguments, scope):
+        segments = arguments["segments"]
+        ids = [segment.get("id", f"legacy-{index + 1}") for index, segment in enumerate(segments)]
+        if len(set(ids)) != len(ids):
+            raise ValueError("INVALID_FILTER_VALUE: segment IDs must be unique")
+        breakdown = arguments.get("breakdown")
+        normalization = arguments.get("normalization", "none")
+        if normalization == "within_segment" and (breakdown != "review_score" or arguments["metrics"] != ["reviewed_order_count"]):
+            raise ValueError("INCOMPATIBLE_GRAIN: normalization needs a complete additive count breakdown")
+        rows, memberships = [], []
+        for index, segment in enumerate(segments):
+            if "filters" in segment:
+                local_filters = segment["filters"]
+                label = segment["label"]
+            else:
+                direct = {key: value for key, value in segment.items() if key not in {"name", "label"}}
+                local_filters = [{"field": key, "op": "eq", "value": value} for key, value in direct.items()]
+                label = segment.get("label") or segment.get("name") or ", ".join(f"{key}={value}" for key, value in direct.items())
+            combined = [*arguments.get("filters", []), *local_filters]
+            sql, params = self.common.observation_query("order", ["review_score"], None,
+                [*(scope or []), *combined], arguments.get("time_range"), self.schema.FIELD_INDEX)
+            observations = self.con.execute(sql, params).fetchall()
+            memberships.append({row[0] for row in observations})
+            if breakdown == "review_score":
+                scores = [int(score) for _, score in observations if score is not None and score in (1, 2, 3, 4, 5)]
+                for score in range(1, 6):
+                    count = scores.count(score)
+                    row = {"segment_id": ids[index], "segment": label, "breakdown": score,
+                           "reviewed_order_count": count}
+                    if normalization == "within_segment":
+                        row.update(share=count / len(scores) if scores else None, segment_denominator=len(scores))
+                    rows.append(row)
+                continue
+            query_args = {"group_by": [breakdown] if breakdown else [], "metrics": arguments["metrics"],
+                          "filters": combined, **({"time_range": arguments["time_range"]} if "time_range" in arguments else {}),
+                          "limit": arguments.get("limit", 100)}
+            sql, params, names, limit = self.queries.build_aggregate(query_args, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
+            values = self.con.execute(sql, params).fetchall()
+            for values_row in values[:limit]:
+                mapped = dict(zip(names, values_row))
+                rows.append({"segment_id": ids[index], "segment": label,
+                             **({"breakdown": mapped.pop(breakdown)} if breakdown else {}), **mapped})
+        if len(rows) > 500:
+            raise ValueError("RESULT_TOO_LARGE: segment result exceeds 500 rows")
+        overlap = sum(1 for order_id in set().union(*memberships) if sum(order_id in group for group in memberships) > 1)
+        columns = {"segment_id": {"type": "nominal"}, "segment": {"type": "nominal"},
+                   **({"breakdown": {"type": self.schema.FIELD_INDEX[breakdown]["type"], "source_field": breakdown}} if breakdown else {}),
+                   **self._columns(arguments["metrics"])}
+        if normalization == "within_segment":
+            columns.update(share={"type": "quantitative", "unit": "ratio"}, segment_denominator={"type": "quantitative"})
+        return {"success": True, "dataset_version": self.version, "result_kind": "segments", "rows": rows,
+                "columns": columns, "truncated": False,
+                "metadata": {"observation_unit": "order", "overlap_count": overlap, "overlap_unit": "order",
+                             "normalization": normalization, "default_scope": {"order_status": "delivered"},
+                             "metric_denominators": {metric: self.metrics.METRIC_INDEX[metric]["denominator"] for metric in arguments["metrics"]}}}
+
     def execute(self, name, arguments, scope=None):
         if self._closed:
             raise ValueError("Olist dataset is closed")
         if scope is not None and not isinstance(scope, list):
             raise ValueError("Scope must be a list of filters")
-        self.common.normalize_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
+        normalized_filters = self.common.normalize_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
+        self.common.validate_filter_conflicts(normalized_filters)
         self.common.validate_time_range(arguments.get("time_range"), self.schema.FIELD_INDEX)
+        if name == "distribution":
+            return {**self.distributions.execute_distribution(self.con, arguments, scope,
+                {"common": self.common, "fields": self.schema.FIELD_INDEX}), "dataset_version": self.version}
+        if name == "relationship":
+            return {**self.relationships.execute_relationship(self.con, arguments, scope,
+                {"common": self.common, "fields": self.schema.FIELD_INDEX}), "dataset_version": self.version}
         if name == "aggregate":
-            query = self.queries.build_aggregate(arguments, scope, self.schema.DIMENSION_INDEX, self.metrics.METRIC_INDEX)
+            query = self.queries.build_aggregate(arguments, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
         elif name == "compare_segments":
-            query = self.queries.build_segments(arguments, scope, self.schema.DIMENSION_INDEX, self.metrics.METRIC_INDEX)
+            if arguments.get("breakdown") or any("filters" in segment for segment in arguments["segments"]):
+                return self._execute_typed_segments(arguments, scope)
+            query = self.queries.build_segments(arguments, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
         else:
             raise ValueError("Unknown Olist tool")
         sql, params, names, limit = query
