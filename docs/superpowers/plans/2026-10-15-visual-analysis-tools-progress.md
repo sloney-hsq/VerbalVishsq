@@ -13,4 +13,6 @@ Task 2: RED: five visual-query tests failed for absent schemas/modules; canonica
 
 Task 2 correction (parent review): RED proved top_k incorrectly ranked orders duplicated by a second dimension; score breakdown accepted incompatible metrics; aggregate lacked effective filters and valid denominator counts. GREEN: 41 focused tests passed. Ranking now uses one row per order per target dimension and null-safe membership. Remaining performance ruling unchanged.
 
+Task 3: RED: five typed visual-tool tests failed on absent visual, patch, revision and fork behavior; batch error test failed because all failures were replaced by batch_rolled_back. Parent review regressions RED for replacement-filter retention, stack additivity, quantitative scatter color, horizontal bar and logical histogram log scale. GREEN: 132 focused dashboard/session tests passed. Legacy tool assertions adjusted only for declared history and batch-error contracts.
+
 Pre-flight interfaces: Task 1 field index feeds Task 2 predicates and Task 3 source validation. Task 2 result kinds and columns feed Task 3 contract and Task 4 renderers. Task 3 revisions, scope and selections feed Task 4 and Task 5. No contradictory public names found in the approved spec and plan.

@@ -18,6 +18,7 @@ class Dashboard:
         self._lock = threading.RLock()
         self._document = {'views': [], 'filters': [], 'highlighted': [],
                           'highlight_element': None, 'dim_others': False,
+                          'active_view_id': None,
                           'dashboard_revision': 0, 'dataset_id': dataset_id,
                           'dataset_version': dataset_version}
         self._drafts = {}
@@ -59,6 +60,11 @@ class Dashboard:
             if not self._history:
                 raise ValueError('No committed dashboard change to undo')
             target = deepcopy(self._history[-1])
+            existing = {view['id'] for view in target['views']}
+            target['active_view_id'] = target.get('active_view_id') if target.get('active_view_id') in existing else None
+            target['highlighted'] = [view_id for view_id in target['highlighted'] if view_id in existing]
+            if not target['highlighted']:
+                target['highlight_element'] = None
             target['dashboard_revision'] = record['base']
             record['undo'] = deepcopy(target)
             draft.document = target
@@ -82,7 +88,13 @@ class Dashboard:
                 if record['undo'] is not None:
                     self._history.pop()
                 else:
-                    self._history.append(deepcopy(self._document))
+                    analytic_keys = ('views', 'filters')
+                    old_analysis = tuple([{k: v for k, v in view.items() if k not in {'highlighted', 'selection_highlights'}} for view in self._document[key]]
+                                         if key == 'views' else self._document[key] for key in analytic_keys)
+                    new_analysis = tuple([{k: v for k, v in view.items() if k not in {'highlighted', 'selection_highlights'}} for view in candidate[key]]
+                                         if key == 'views' else candidate[key] for key in analytic_keys)
+                    if old_analysis != new_analysis:
+                        self._history.append(deepcopy(self._document))
                 candidate['dashboard_revision'] += 1
                 self._document = candidate
             del self._drafts[id(draft)]

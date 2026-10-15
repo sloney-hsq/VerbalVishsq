@@ -74,6 +74,21 @@ def make(condition='revision_enabled', provider=None):
     return session, tools, browser, sent
 
 
+def test_batch_failure_preserves_failing_call_error_and_marks_neighbors():
+    async def scenario():
+        session, tools, browser, _ = make()
+        response = session.protocol.begin_response(0)
+        calls = [{'call_id': str(index), 'name': name, 'arguments': '{}'}
+                 for index, name in enumerate(('chart', 'fail', 'chart'))]
+        await session.run_batch(response.id, calls)
+        outcomes = [event for event in browser if event['type'] == 'tool_result']
+        assert [item['error']['code'] for item in outcomes] == ['rolled_back', 'tool_error', 'skipped']
+        assert outcomes[1]['error']['message'] == 'bad request'
+        assert session.dashboard.snapshot()['views'] == []
+        await session.close()
+    asyncio.run(scenario())
+
+
 def test_provider_configuration_is_negotiated_not_assumed():
     async def scenario():
         s, _, _, _ = make()
@@ -918,7 +933,9 @@ def test_batch_outcome_matrix_and_publication(names, expected_commit, expected_r
         assert all({key: item[key] for key in expected} == expected for item in results + outputs)
         if expected_commit == 'failed':
             assert all(item['success'] is False for item in results + outputs)
-            assert len({json.dumps(item['error'], sort_keys=True) for item in results + outputs}) == 1
+            expected_codes = ['rolled_back', 'tool_error', *(['skipped'] if len(calls) > 2 else [])]
+            assert [item['error']['code'] for item in results] == expected_codes
+            assert [item['error']['code'] for item in outputs] == expected_codes
         await s.close()
         records = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
         outcomes = [r for r in records if r['event'] == 'batch.outcome']

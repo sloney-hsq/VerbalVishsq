@@ -6,6 +6,9 @@ import uuid
 
 from jsonschema import Draft202012Validator
 
+from .chart_contract import normalize_visual, validate_visual
+from .chart_patch import normalize_source_filters, execution_source, apply_analysis_patch, apply_visual_patch
+
 
 def _object(properties=None, required=()):
     return {'type': 'object', 'properties': properties or {},
@@ -18,15 +21,23 @@ _CHART = {'source': _SOURCE, 'chart_type': {'enum': ['bar', 'line', 'scatter']},
           'x': _STRING, 'y': _STRING, 'series': {'type': ['string', 'null'], 'minLength': 1},
           'title': {'type': 'string'}}
 _FILTER = _object({'field': _STRING, 'op': _STRING,
-                   'value': {'type': ['string', 'number', 'boolean', 'null']}}, ('field', 'op'))
+                   'value': {}}, ('field', 'op'))
+_CREATE = _object({**_CHART, 'visual': {'type': 'object'}, 'activate': {'type': 'boolean'}}, ('source',))
+_CREATE['anyOf'] = [{'required': ['visual']}, {'required': ['chart_type', 'x', 'y']}]
+_UPDATE = _object({'view_id': _STRING, **_CHART, 'analysis_patch': {'type': 'object'},
+                   'visual_patch': {'type': 'object'}}, ('view_id',))
+_FORK = _object({'view_id': _STRING, 'analysis_patch': {'type': 'object'},
+                 'visual_patch': {'type': 'object'}, 'title': {'type': 'string'},
+                 'scope_mode': {'enum': ['snapshot', 'linked']}}, ('view_id',))
 _PUBLIC = [
     ('describe_dataset', 'Describe the active dataset, metrics, fields and shared filters.', _object()),
-    ('create_chart', 'Create a chart from a registered read-only dataset tool.', _object(_CHART, ('source', 'chart_type', 'x', 'y'))),
-    ('update_chart', 'Update a chart; omitted properties are preserved.', _object({'view_id': _STRING, **_CHART}, ('view_id',))),
+    ('create_chart', 'Create a typed chart from a registered read-only dataset tool.', _CREATE),
+    ('update_chart', 'Patch an existing chart; omitted properties are preserved.', _UPDATE),
+    ('fork_chart', 'Copy a chart with snapshot or linked scope.', _FORK),
     ('delete_chart', 'Delete a chart by its view ID.', _object({'view_id': _STRING}, ('view_id',))),
     ('set_analysis_filters', 'Replace shared filters and recompute every chart atomically.', _object({'filters': {'type': 'array', 'items': _FILTER}}, ('filters',))),
     ('highlight_chart', 'Highlight one chart or clear highlighting with a null view_id.', _object({'view_id': {'type': ['string', 'null']}, 'element': {'type': ['object', 'null']}, 'dim_others': {'type': 'boolean'}}, ('view_id',))),
-    ('inspect_dashboard', 'Inspect the current draft dashboard without changing it.', _object()),
+    ('inspect_dashboard', 'Inspect dashboard summary or bounded view data.', _object({'view_id': _STRING, 'include_data': {'type': 'boolean'}})),
     ('undo_dashboard', 'Undo the last committed change. Must be the only mutation in the batch.', _object()),
 ]
 _MUTATING = {name for name, _, _ in _PUBLIC} - {'describe_dataset', 'inspect_dashboard'}
@@ -51,6 +62,11 @@ class Toolbox:
                 raise ValueError('Chart sources must be read-only dataset tools')
             self._definitions[name] = {key: deepcopy(definition[key]) for key in ('name', 'description', 'parameters')}
             self._domain_names.add(name)
+        source_branches = [_object({'tool': {'const': definition['name']},
+                                    'arguments': deepcopy(definition['parameters'])}, ('tool', 'arguments'))
+                           for definition in dataset.definitions]
+        self._definitions['create_chart']['parameters']['properties']['source'] = {'oneOf': source_branches}
+        self._definitions['update_chart']['parameters']['properties']['source'] = {'oneOf': source_branches}
         self._validators = {name: Draft202012Validator(definition['parameters']) for name, definition in self._definitions.items()}
 
     def schemas(self):
@@ -86,16 +102,23 @@ class Toolbox:
             if before is not None:
                 draft.document = before
                 draft.dirty = dirty
+            message = str(exc)
+            code = message.split(':', 1)[0]
+            if code not in {'INVALID_FILTER_VALUE', 'FILTER_CONFLICT', 'INCOMPATIBLE_GRAIN',
+                            'INCOMPATIBLE_ENCODING', 'RESULT_TOO_LARGE', 'INVALID_SELECTION', 'STALE_SOURCE_VIEW'}:
+                code = 'tool_error'
             return {'success': False, 'payload': None,
-                    'error': {'code': 'tool_error', 'message': str(exc)}}
+                    'error': {'code': code, 'message': message}}
 
     def _query(self, name, arguments, filters):
         if name not in self._domain_names:
             raise ValueError('Chart source must name a registered dataset tool')
-        self._validators[name].validate(arguments)
-        result = self.dataset.execute(name, deepcopy(arguments), deepcopy(filters))
+        clean = execution_source({'tool': name, 'arguments': arguments})['arguments']
+        self._validators[name].validate(clean)
+        result = self.dataset.execute(name, deepcopy(clean), deepcopy(filters))
         if not result.get('success'):
-            raise ValueError(result.get('error', {}).get('message', 'Dataset query failed'))
+            error = result.get('error', {})
+            raise ValueError(f"{error.get('code', 'dataset_error')}: {error.get('message', 'Dataset query failed')}")
         if result.get('dataset_version') != self._description['version']:
             raise ValueError('Dataset result version mismatch')
         return result
@@ -106,50 +129,106 @@ class Toolbox:
                 return view
         raise ValueError('Unknown view_id: ' + view_id)
 
-    def _render(self, config, filters):
-        result = self._query(config['source']['tool'], config['source']['arguments'], filters)
-        columns = result['columns']
-        requested = [config['x'], config['y']]
-        if config.get('series') is not None:
-            requested.append(config['series'])
-        if any(field not in columns for field in requested):
-            raise ValueError('Chart encoding references a missing result column')
-        x_type, y_type = columns[config['x']]['type'], columns[config['y']]['type']
-        allowed_x = {'bar': {'nominal', 'ordinal', 'temporal'},
-                     'line': {'temporal', 'ordinal', 'quantitative'},
-                     'scatter': {'quantitative'}}
-        if y_type != 'quantitative' or x_type not in allowed_x[config['chart_type']]:
-            raise ValueError('Chart encoding types do not match chart semantics')
-        if config.get('series') is not None and columns[config['series']]['type'] not in {'nominal', 'ordinal'}:
-            raise ValueError('Series must use a nominal or ordinal column')
-        return {'chart_type': config['chart_type'], 'x_field': config['x'], 'y_field': config['y'],
-                'color': config.get('series'), 'title': config.get('title', ''),
-                'source': deepcopy(config['source']), 'data': deepcopy(result['rows']),
-                'columns': deepcopy(columns), 'truncated': result['truncated']}
+    def _render(self, config, filters, *, stored_result=None):
+        source = normalize_source_filters(config['source'])
+        if source['tool'] not in self._domain_names:
+            raise ValueError('Chart source must name a registered dataset tool')
+        result = stored_result or self._query(source['tool'], source['arguments'], filters)
+        visual = validate_visual(normalize_visual(config), result)
+        if result.get('truncated') and visual['type'] in {'line', 'heatmap', 'histogram', 'boxplot'}:
+            raise ValueError('RESULT_TOO_LARGE: chart source is truncated; narrow range or use top_k')
+        encoding = visual['encoding']
+        return {'chart_type': visual['type'], 'x_field': encoding.get('x'), 'y_field': encoding.get('y'),
+                'color': encoding.get('color'), 'title': config.get('title', ''),
+                'source': source, 'visual': visual, 'data': deepcopy(result['rows']),
+                'columns': deepcopy(result['columns']), 'truncated': result['truncated'],
+                'result_kind': result.get('result_kind', 'table'), 'metadata': deepcopy(result.get('metadata', {}))}
+
+    def _stored_result(self, view):
+        return {'rows': deepcopy(view['data']), 'columns': deepcopy(view['columns']),
+                'truncated': view['truncated'], 'result_kind': view.get('result_kind', 'table'),
+                'metadata': deepcopy(view.get('metadata', {}))}
+
+    def _scope_for(self, view, shared_filters):
+        return view.get('scope_filters', []) if view.get('scope_mode') == 'snapshot' else shared_filters
 
     def _describe_dataset(self, args, draft):
         return self._description
 
     def _inspect_dashboard(self, args, draft):
-        return draft.document
+        document = deepcopy(draft.document)
+        if args.get('view_id'):
+            selected = self._view(document, args['view_id'])
+            document['views'] = [selected]
+        if not args.get('include_data'):
+            for view in document['views']:
+                view.pop('data', None)
+        else:
+            for view in document['views']:
+                if len(view.get('data', [])) > 200:
+                    view['data'] = view['data'][:200]
+                    view['data_truncated_for_inspection'] = True
+        return document
 
     def _create_chart(self, args, draft):
         view = {'id': uuid.uuid4().hex, 'highlighted': False,
-                **self._render(args, draft.document['filters'])}
+                'view_revision': 1, 'scope_mode': 'linked', 'selection_filters': {},
+                'selection_highlights': {}, **self._render(args, draft.document['filters'])}
         draft.document['views'].append(view)
+        if args.get('activate', True):
+            draft.document['active_view_id'] = view['id']
         return view
 
     def _update_chart(self, args, draft):
         view = self._view(draft.document, args['view_id'])
-        config = {'source': view['source'], 'chart_type': view['chart_type'],
-                  'x': view['x_field'], 'y': view['y_field'], 'series': view['color'], 'title': view['title']}
-        config.update({key: value for key, value in args.items() if key != 'view_id'})
-        view.update(self._render(config, draft.document['filters']))
-        return view
+        if 'analysis_patch' in args and 'source' in args or 'visual_patch' in args and any(key in args for key in ('chart_type', 'x', 'y', 'series')):
+            raise ValueError('INCOMPATIBLE_ENCODING: mixed legacy and patch update')
+        source = apply_analysis_patch(view['source'], args['analysis_patch']) if 'analysis_patch' in args else deepcopy(args.get('source', view['source']))
+        visual = apply_visual_patch(view['visual'], args['visual_patch']) if 'visual_patch' in args else deepcopy(view['visual'])
+        if any(key in args for key in ('chart_type', 'x', 'y', 'series')):
+            visual = normalize_visual({'chart_type': args.get('chart_type', view['chart_type']),
+                'x': args.get('x', view['x_field']), 'y': args.get('y', view['y_field']),
+                'series': args.get('series', view['color'])})
+        config = {'source': source, 'visual': visual, 'title': args.get('title', view['title'])}
+        source_changed = execution_source(source) != execution_source(view['source'])
+        rendered = self._render(config, self._scope_for(view, draft.document['filters']),
+                                stored_result=None if source_changed else self._stored_result(view))
+        changed = [key for key in ('source', 'visual', 'title') if rendered[key] != view[key]]
+        if changed:
+            view.update(rendered)
+            view['view_revision'] = view.get('view_revision', 1) + 1
+        return {**view, 'changed_fields': changed, 'effective_source': deepcopy(view['source'])}
+
+    def _fork_chart(self, args, draft):
+        original = self._view(draft.document, args['view_id'])
+        mode = args.get('scope_mode', 'snapshot')
+        if mode == 'snapshot' and original.get('scope_mode') != 'snapshot':
+            original['scope_mode'] = 'snapshot'
+            original['scope_filters'] = deepcopy(draft.document['filters'])
+        clone = deepcopy(original)
+        clone['id'] = uuid.uuid4().hex
+        clone['highlighted'] = False
+        clone['selection_filters'] = {}
+        clone['selection_highlights'] = {}
+        clone['view_revision'] = 1
+        clone['scope_mode'] = mode
+        if mode == 'linked':
+            clone.pop('scope_filters', None)
+            if original.get('scope_mode') == 'snapshot':
+                clone.update(self._render({'source': clone['source'], 'visual': clone['visual'], 'title': clone['title']},
+                                          draft.document['filters']))
+        draft.document['views'].append(clone)
+        if any(key in args for key in ('analysis_patch', 'visual_patch', 'title')):
+            update = {'view_id': clone['id']}
+            update.update({key: args[key] for key in ('analysis_patch', 'visual_patch', 'title') if key in args})
+            self._update_chart(update, draft)
+        return clone
 
     def _delete_chart(self, args, draft):
         view = self._view(draft.document, args['view_id'])
         draft.document['views'].remove(view)
+        if draft.document.get('active_view_id') == view['id']:
+            draft.document['active_view_id'] = draft.document['views'][-1]['id'] if draft.document['views'] else None
         if view['id'] in draft.document['highlighted']:
             draft.document['highlighted'].remove(view['id'])
         if not draft.document['highlighted']:
@@ -158,6 +237,12 @@ class Toolbox:
         return {'deleted': view['id']}
 
     def _validate_filters(self, filters):
+        field_index = self._description.get('field_index')
+        if isinstance(field_index, dict):
+            from refactor_next.datasets.olist.query_common import normalize_filters, validate_filter_conflicts
+            normalized = normalize_filters(filters, field_index)
+            validate_filter_conflicts(normalized)
+            return
         descriptor = self._description.get('filters', {})
         fields, operators = descriptor.get('fields', []), descriptor.get('operators', [])
         metadata = {}
@@ -174,6 +259,8 @@ class Toolbox:
             if item['op'] == 'is_null':
                 continue
             value = item['value']
+            if isinstance(value, (dict, list)):
+                raise ValueError('Filter requires a scalar value')
             field_type = metadata.get(item['field'], {}).get('type')
             if value is None:
                 if item['op'] not in {'eq', 'neq'}:
@@ -194,12 +281,16 @@ class Toolbox:
     def _set_analysis_filters(self, args, draft):
         filters = args['filters']
         self._validate_filters(filters)
+        if filters == draft.document['filters']:
+            return draft.document
         # Render into private candidates first; no partial updates if any source fails.
         views = []
         for view in draft.document['views']:
-            config = {'source': view['source'], 'chart_type': view['chart_type'], 'x': view['x_field'],
-                      'y': view['y_field'], 'series': view['color'], 'title': view['title']}
-            views.append({**view, **self._render(config, filters)})
+            if view.get('scope_mode') == 'snapshot':
+                views.append(view)
+                continue
+            config = {'source': view['source'], 'visual': view['visual'], 'title': view['title']}
+            views.append({**view, **self._render(config, filters), 'view_revision': view.get('view_revision', 1) + 1})
         draft.document['views'] = views
         draft.document['filters'] = deepcopy(filters)
         return draft.document

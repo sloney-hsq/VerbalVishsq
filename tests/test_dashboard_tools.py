@@ -109,9 +109,8 @@ def test_undo_cancel_conflict_and_success_do_not_consume_history_early(stack):
     undo = dashboard.begin_draft()
     assert toolbox.execute('undo_dashboard', {}, undo)['success']
     assert dashboard.commit(undo)['highlighted'] == []
-    undo = dashboard.begin_draft()
-    dashboard.stage_undo(undo)
-    assert dashboard.commit(undo)['views'] == []
+    # Pure highlight has no analysis-history entry; the first undo removes
+    # the preceding chart creation, and a second undo is unavailable.
     with pytest.raises(ValueError):
         dashboard.stage_undo(dashboard.begin_draft())
 

@@ -660,7 +660,8 @@ class AnalysisSession:
                     if not isinstance(arguments, dict) or undo_mixed:
                         raise ValueError('Arguments must be an object; undo must be a standalone batch')
                     if results and not results[-1]['success']:
-                        result = {'success': False, 'payload': {}, 'error': 'skipped after failed call'}
+                        result = {'success': False, 'payload': {},
+                                  'error': {'code': 'skipped', 'message': 'Skipped after an earlier call failed.'}}
                     else:
                         call_started = perf_counter()
                         self.trace.record('tool.execution_started', response_id=response_id,
@@ -739,8 +740,17 @@ class AnalysisSession:
                         return
             else:
                 commit_status = 'failed'
-                error = {'code': 'batch_rolled_back', 'message': 'Tool batch rolled back after a call failed.'}
-                results = [{'success': False, 'payload': {}, 'error': error} for _ in results]
+                revised = []
+                for result in results:
+                    if result['success']:
+                        revised.append({'success': False, 'payload': {}, 'error':
+                                        {'code': 'rolled_back', 'message': 'Earlier successful call was rolled back.'}})
+                    else:
+                        error = result.get('error', {})
+                        if not isinstance(error, dict):
+                            error = {'code': 'tool_error', 'message': str(error)}
+                        revised.append({'success': False, 'payload': {}, 'error': error})
+                results = revised
             outcome = {'execution_status': execution_status, 'commit_status': commit_status,
                        'state_changed': commit_status == 'committed'}
             for call, result in zip(calls, results):
