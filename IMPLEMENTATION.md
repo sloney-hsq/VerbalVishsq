@@ -12,7 +12,7 @@
 
 ## Global constraints
 
-- Work only under refactor_next; old project/data remain unchanged. No push/publish.
+- Work only in this repository; archived source/data remain unchanged. No push/publish.
 - Preserve frontend visual design; replace domain assumptions and transport bindings only.
 - Provider simulation is for tests, never the application backend.
 - Synthetic educational data is labelled, not presented as a real study.
@@ -43,7 +43,7 @@
 Files: backend/analytics.py; datasets/olist/interface.py; datasets/education/interface.py; datasets/education/data.csv; tests/test_datasets.py.
 
 - [ ] Write failing tests for loading a custom interface, invalid schema/version, real CSV query with two domains, Olist item/order grain.
-- [ ] Implement the Integration interfaces exactly. Olist uses actual old data paths via config, not old Python imports; education provides its own tool name and schema.
+- [ ] Implement the Integration interfaces exactly. Olist uses repository-local, Git-ignored data paths via configuration, not archived Python imports; education provides its own tool name and schema.
 - [ ] Execute actual SQL with bound filter values and validated identifiers; handle NULL and explicit limits.
 - [ ] Run Python tests and review changes before integration.
 

@@ -1,28 +1,29 @@
 # VerbalVis Standalone Repository Migration Implementation Plan
 
+> Archived migration record; not current setup instructions. Machine-specific source and destination values are intentionally omitted. Current setup and release policy are defined by README.md, `datasets/olist/DATASET_SETUP.md`, and RELEASE_CHECKLIST.md.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Create a clean standalone VerbalVis research repository that reproduces the current tested behavior and is ready for the paper runtime refactor.
 
-**Architecture:** Export the approved subtree through an explicit allowlist, harden repository-root path resolution, rebuild dependencies in clean environments, then establish a verified baseline commit. Runtime architecture changes begin only after migration is complete.
+**Architecture:** Export the approved source snapshot through an explicit allowlist, use repository-root path resolution, rebuild dependencies in clean environments, then establish a verified baseline commit. Runtime architecture changes begin only after migration is complete.
 
-**Tech Stack:** Python 3.11, FastAPI, DuckDB, pytest, Node 20, Vue 3, Vite 6, GitHub Actions, PowerShell/Git.
+**Tech Stack:** Python 3.11.14, FastAPI, DuckDB, pytest, Node 20, Vue 3, Vite 6, GitHub Actions, PowerShell/Git.
 
 **Spec:** `docs/superpowers/specs/2026-10-15-standalone-repository-migration-design.md`
 
 ## Global Constraints
 
-- Source root: `F:\VerbalVis2 - 副本 (4)7月15\refactor_next`.
-- Destination root: `C:\verbalvis` (Windows resolves the existing empty `C:\VerbalVis` directory to the same location).
+- Source and destination paths were recorded in a private migration log; they are intentionally omitted from this repository.
 - Copy; do not move, delete, reset or clean the source tree.
-- Do not copy parent Git history, real Olist CSVs, credentials, Trace, participant data, raw audio, caches, build output or `.superpowers` snapshots.
+- Do not copy unrelated source history, real Olist CSVs, credentials, Trace, participant data, raw audio, caches, build output or `.superpowers` snapshots.
 - Preserve application behavior, the existing Vue presentation and current Python import identity during migration.
 - Push only to a newly created private GitHub repository. Do not make the repository public, add a license, or invent citation authorship during migration.
 - Begin the paper runtime refactor only after the standalone baseline is green and clean.
 
 ## Review Focus
 
-- A relative `VERBALVIS_CONFIG` launched outside the repo must resolve from the repository root.
+- A relative `VERBALVIS_CONFIG` launched outside the repository resolves from the repository root; this contract is already covered by application tests.
 - Olist configuration must resolve to the ignored `datasets/olist/data` directory and never to the old parent tree.
 - The export must exclude nested `node_modules`, `dist`, `.superpowers`, caches and consent-controlled data.
 - Editable Python installation and script imports must work from the standalone root on a clean machine.
@@ -38,17 +39,19 @@
 
 **Interfaces:**
 - Consumes: current source tree and existing test commands
-- Produces: a recorded source baseline and explicit source/destination paths
+- Produces: a recorded source baseline and private source/destination path record
 
-- [ ] **Step 1: Resolve and record both absolute paths**
+- [ ] **Step 1: Resolve and privately record both paths**
 
-Set PowerShell variables named `$MigrationSourceRoot` and `$MigrationTargetRoot`; verify the source ends in `refactor_next`, the destination is `C:\verbalvis`, is empty, and the two resolved paths differ.
+Set migration source and target variables in a private session log; verify that source and destination are distinct resolved paths. Keep their values out of repository documentation.
 
 - [ ] **Step 2: Run the source baseline checks**
 
 Run:
 
 ```powershell
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install --no-deps -e .
 python -m pytest tests -q
 Push-Location frontend
 npm test
@@ -57,11 +60,11 @@ Pop-Location
 python scripts/analyze_traces.py tests/fixtures/trace_v2_analyzer.jsonl --strict
 ```
 
-Expected: 296 or more Python tests pass, 64 or more frontend tests pass, the build succeeds, and the Trace fixture reports zero diagnostics. Record exact counts rather than hard-coding them as future requirements.
+Expected: installation completes under Python 3.11.14, Python tests pass, frontend tests pass, the build succeeds, and the Trace fixture reports zero diagnostics. Record exact counts rather than hard-coding them as future requirements.
 
 - [ ] **Step 3: Inventory excluded material**
 
-Confirm the source `.gitignore` covers `.env`, Trace, schedules, participant data, raw audio, build output and both conventional Olist data locations. List any existing excluded files without printing their contents.
+Confirm the source `.gitignore` covers `.env`, Trace, schedules, participant data, raw audio, build output and local Olist data. List any existing excluded files without printing their contents.
 
 - [ ] **Step 4: Record the source file manifest**
 
@@ -89,11 +92,11 @@ Use explicit directory/file lists or `robocopy` exclusions. Do not copy the sour
 
 - [ ] **Step 3: Verify exclusion rules against the physical destination**
 
-Assert that `.git`, `.superpowers`, `.env`, `node_modules`, `dist`, caches, `traces`, `pilot_sessions`, `participant_data`, `raw_audio`, real Olist CSVs, `*.lnk` and the parent ZIP are absent.
+Assert that `.git`, `.superpowers`, `.env`, `node_modules`, `dist`, caches, `traces`, `pilot_sessions`, `participant_data`, `raw_audio`, real Olist CSVs, `*.lnk` and archived source ZIP files are absent.
 
 - [ ] **Step 4: Scan for old-machine references and credentials**
 
-Search source/config/docs for `F:\VerbalVis2`, `C:\Users\admin`, API-key shaped values and private URLs. Allowed examples must contain placeholders only.
+Search source, configuration, and documentation for machine-specific absolute paths, credentials, and private URLs. Allowed examples must use placeholders only.
 
 ### Task 3: Make configuration paths standalone
 
@@ -107,7 +110,7 @@ Search source/config/docs for `F:\VerbalVis2`, `C:\Users\admin`, API-key shaped 
 
 **Interfaces:**
 - Consumes: destination repository root derived from `backend/main.py`
-- Produces: `read_config(config=None) -> dict` with root-relative config resolution and repository-local Olist configuration
+- Produces: `read_config(config=None) -> dict` with verified root-relative config resolution and repository-local Olist configuration
 
 - [ ] **Step 1: Write the failing Olist path test**
 
@@ -115,7 +118,7 @@ Add `test_olist_config_uses_ignored_repo_local_data_directory`: load `configs/ol
 
 - [ ] **Step 2: Verify the Olist path test fails**
 
-Run the single test. Expected: FAIL because the current value is `../backend/data/olist`.
+Archived expectation: before the path migration, this check failed because configuration used an obsolete parent-relative Olist data path.
 
 - [ ] **Step 3: Change the Olist data location**
 
@@ -131,11 +134,11 @@ Add `test_relative_env_config_resolves_from_repository_root`: change the process
 
 - [ ] **Step 6: Verify the config-root test fails**
 
-Expected: FAIL with file-not-found because the current implementation resolves the environment value from the process working directory.
+Archived expectation: before the path migration, this check failed because the process working directory was used.
 
-- [ ] **Step 7: Implement root-relative config resolution**
+- [x] **Step 7: Verify root-relative config resolution**
 
-In `read_config`, preserve absolute paths and resolve relative explicit/environment config paths against `ROOT` before reading them.
+`read_config` preserves absolute paths and resolves relative explicit/environment config paths against `ROOT` before reading them. Keep the existing tests for explicit, environment, and absolute paths.
 
 - [ ] **Step 8: Run path and application tests**
 
@@ -143,7 +146,7 @@ Run `tests/test_app.py`, `tests/test_initial_dashboard.py`, `tests/test_olist_ad
 
 - [ ] **Step 9: Remove stale standalone-path text**
 
-Change the missing-build hint in `backend/main.py` from `refactor_next/frontend` to `frontend`. Remove or clearly label historical machine-specific paths in `DASHBOARD_REPORT.md`, and update documents that describe this code as merely a parent-repository subtree.
+Verify that the missing-build hint names `frontend`; remove or archive machine-specific paths in documentation, and describe the code as an approved source snapshot rather than former source-layout wording.
 
 - [ ] **Step 10: Commit the standalone path contract**
 
@@ -160,9 +163,9 @@ Commit message: `fix: make dataset configuration repository relative`.
 - Consumes: standalone source and dependency manifests
 - Produces: reproducible local Python and Node installations
 
-- [ ] **Step 1: Create a fresh Python 3.11 virtual environment outside the repository**
+- [ ] **Step 1: Create a fresh Python 3.11.14 virtual environment outside the repository**
 
-Install with `python -m pip install -e <destination>`. Do not reuse packages from the source environment when deciding whether metadata is complete.
+Install with `python -m pip install --require-hashes -r requirements.lock`, then `python -m pip install --no-deps -e <destination>`. Do not reuse packages from the source environment when deciding whether metadata is complete.
 
 - [ ] **Step 2: Run backend and research-tool tests from the destination**
 
@@ -178,7 +181,7 @@ Start the application with the Education config, verify `/api/health`, `/api/dat
 
 - [ ] **Step 5: Run the local Olist smoke check when CSVs are available**
 
-Copy/link the nine CSVs into ignored `backend/data/olist/`, run adapter correctness and initial-dashboard smoke tests, and confirm no CSV appears in `git status`.
+Copy/link the nine CSVs into ignored `datasets/olist/data/`, run adapter correctness and initial-dashboard smoke tests, and confirm no CSV appears in `git status`.
 
 ### Task 5: Establish the standalone Git baseline
 
@@ -192,7 +195,7 @@ Copy/link the nine CSVs into ignored `backend/data/olist/`, run adapter correctn
 
 - [ ] **Step 1: Initialize a new repository**
 
-Run `git init -b main` in the destination. Do not attach the dirty parent repository as history.
+Run `git init -b main` in the destination. Do not attach unrelated source history.
 
 - [ ] **Step 2: Inspect the exact staged set**
 

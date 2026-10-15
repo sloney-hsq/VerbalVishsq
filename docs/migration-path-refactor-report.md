@@ -1,7 +1,7 @@
 # Standalone Path Refactor Report
 
 Date: 2026-10-15  
-Repository: `C:\verbalvis`  
+Repository: standalone repository root
 Plan scope: Task 3 of `docs/superpowers/plans/2026-10-15-standalone-repository-migration.md`
 
 ## Result
@@ -9,14 +9,14 @@ Plan scope: Task 3 of `docs/superpowers/plans/2026-10-15-standalone-repository-m
 - `configs/olist.json` now uses the repository-local, Git-ignored Olist directory: `datasets/olist/data`.
 - `read_config(config=None)` resolves relative explicit config paths and relative `VERBALVIS_CONFIG` values from the repository `ROOT`.
 - Absolute `VERBALVIS_CONFIG` paths retain their existing behavior and are not prefixed with `ROOT`.
-- The missing-frontend-build response now instructs users to run the build in `frontend`; it no longer mentions `refactor_next/frontend`.
+- The missing-frontend-build response instructs users to run the build in `frontend`; it no longer uses former nested-checkout wording.
 - No paper protocol, frontend behavior, or UI code was changed.
-- Per the assigned scope, README, PILOT, and DASHBOARD reports were not modified.
-- No Git commit was created. The repository is still before its first standalone baseline commit.
+
+This historical report records only the completed path-contract work; later documentation hygiene is recorded separately. At the time of this refactor, no standalone baseline commit had been created. Consult Git history for the current repository state.
 
 ## TDD evidence
 
-The Windows Store `python.exe` alias initially returned exit code 9009 without running pytest. That attempt is not counted as RED evidence. All valid runs below used `C:\verbalvis\.venv\Scripts\python.exe` (Python 3.11.14, pytest 9.1.1).
+The Windows Store `python.exe` alias initially returned exit code 9009 without running pytest. That attempt is not counted as RED evidence. All valid runs below used the repository virtual environment (Python 3.11.14, pytest 9.1.1).
 
 ### Cycle 1: repository-local Olist data path
 
@@ -30,7 +30,7 @@ RED output summary:
 
 ```text
 FAILED tests/test_initial_dashboard.py::test_olist_config_uses_ignored_repo_local_data_directory
-AssertionError: assert '../backend/data/olist' == 'datasets/olist/data'
+AssertionError: the configured data directory did not equal the repository-local ignored Olist directory
 1 failed in 0.36s
 ```
 
@@ -106,11 +106,11 @@ RED output summary:
 
 ```text
 FAILED tests/test_app.py::test_missing_frontend_build_hint_uses_standalone_repository_path
-AssertionError: assert 'refactor_next/frontend' not in message
+AssertionError: the response still contained former nested-checkout wording
 1 failed, 1 warning in 0.63s
 ```
 
-Minimal implementation: changed the response text from `refactor_next/frontend` to `frontend`.
+Minimal implementation: changed the response text to name `frontend`.
 
 GREEN command:
 

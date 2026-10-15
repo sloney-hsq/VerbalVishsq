@@ -53,7 +53,7 @@ lock suspension without premature permit consumption. Coverage also includes
 unknown/replayed ASR, bounded retention, successful temporal-filter-then-chart,
 descriptor-driven quantitative values, and late-response trace correlation.
 
-Final verification (working directory: `refactor_next`):
+Final verification (working directory: repository root):
 
 ```powershell
 python -m pytest -q --tb=short

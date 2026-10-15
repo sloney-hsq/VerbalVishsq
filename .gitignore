@@ -19,5 +19,9 @@ Thumbs.db
 pilot_sessions/
 participant_data/
 raw_audio/
+# Legacy local-data safeguard; current Olist data belongs in datasets/olist/data/.
 backend/data/olist/
 datasets/olist/data/
+experiments/**/data/
+experiments/**/results/
+experiments/**/outputs/

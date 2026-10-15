@@ -1,19 +1,14 @@
 # VerbalVis Standalone Repository Migration Design
 
+> Archived migration record; not current setup instructions. Source and destination locations are intentionally omitted. Current setup and release policy are defined by README.md, `datasets/olist/DATASET_SETUP.md`, and RELEASE_CHECKLIST.md.
+
 ## Goal
 
-Move the paper-facing implementation from
-`F:\VerbalVis2 - 副本 (4)7月15\refactor_next` into a clean standalone
-repository at `C:\verbalvis`. The source
-directory remains unchanged until the destination passes every acceptance
-check.
+This archived record describes copying the approved implementation from a separate source checkout into this standalone repository. The source checkout remained unchanged until acceptance checks passed.
 
 ## Migration boundary
 
-The migration copies the current application, tests, research utilities and
-documentation. It does not copy the parent repository history because
-`refactor_next` is currently an untracked subtree of a dirty parent repository;
-that history cannot accurately describe this implementation.
+The migration copies the approved application snapshot, tests, research utilities and documentation. It intentionally does not import unrelated source history, which cannot accurately describe this implementation.
 
 The migration and the paper runtime refactor are two separate changes. The
 standalone repository first receives a behavior-preserving baseline. The
@@ -37,14 +32,14 @@ after that baseline is verified.
 
 ## Excluded content
 
-- Parent `.git` history and all parent-project files
+- Unrelated source `.git` history and source-project files
 - `.superpowers/` snapshots and implementation scratch state
 - `.env` and credentials
 - `node_modules/`, `dist/`, caches, bytecode and editable-install metadata
 - `traces/`, `pilot_sessions/`, `participant_data/` and `raw_audio/`
 - Real Olist CSV files
 - Local shortcuts and editor configuration
-- The parent-level `refactor_next.zip`
+- Archived source ZIP files
 
 ## Standalone path contract
 
@@ -66,11 +61,7 @@ identity and application commands. Package renaming and source-layout changes
 are deferred to a separate reviewed change so migration failures cannot be
 confused with architecture changes.
 
-The new repository begins with a single baseline commit after clean-environment
-verification. A local baseline tag identifies the exact pre-refactor state.
-The verified baseline is pushed to a newly created private GitHub repository;
-public release remains a separate decision gated by licensing, citation, data
-distribution and research-ethics review.
+The standalone repository may receive a baseline commit after clean-environment verification. A local baseline tag, if created, identifies the exact pre-refactor state. Private collaboration and public release remain separate states; public release is gated by README.md and RELEASE_CHECKLIST.md.
 
 The initial standalone repository remains a source-checkout application:
 editable Python installation, frontend build and repository-root execution are
@@ -91,7 +82,7 @@ and outside release archives.
 
 1. The destination contains no file from the exclusion list.
 2. A scan finds no old absolute project path or credential value.
-3. `python -m pip install -e .` succeeds in a fresh Python 3.11 environment.
+3. In a fresh Python 3.11.14 environment, `python -m pip install --require-hashes -r requirements.lock` followed by `python -m pip install --no-deps -e .` succeeds.
 4. `python -m pytest tests -q` passes.
 5. `npm ci`, `npm test` and `npm run build` pass under Node 20.
 6. The Education configuration starts without real Olist data.
@@ -101,10 +92,10 @@ and outside release archives.
 8. Pilot schedule generation and strict Trace fixture analysis pass.
 9. `git status` is clean after the baseline commit, and ignored research data
    remains untracked.
-10. The original source directory remains available until the standalone
+10. The archived source checkout remains available until the standalone
     baseline has been reviewed.
 11. A fresh private GitHub repository contains the verified `main` branch and
-    no ignored data, credentials, generated output or parent-repository history.
+    no ignored data, credentials, generated output or unrelated source history.
 
 ## Rollback
 

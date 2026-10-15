@@ -19,20 +19,17 @@ Implemented only `backend/dashboard.py`, `backend/tools.py`, and `tests/test_das
 - Omitted update fields are preserved; explicit `series: null` clears color encoding. An update re-executes its source. This ensures metadata and data remain synchronized but performs a query even for title-only changes.
 - Filter validation uses descriptor `filters.fields` and `filters.operators`; arbitrary third-party domain-specific value semantics are still owned by the registered interface. The two supplied adapters accept scalar filter values and supported fields/operators.
 - Batch-wide atomicity, authority and standalone-Undo batch admission remain the session's responsibility. A failed tool call restores that call's prior draft state; it does not erase earlier successful calls in the same draft.
-- This task followed the already-approved implementation plan and parent ownership boundaries; it did not create a new worktree, commit, or dispatch agents. Final whole-project integration/review remains with the parent agent.
+- This task followed the already-approved implementation plan and assigned ownership boundaries; it did not create a new worktree, commit, or dispatch agents. Final whole-project integration/review remains with the coordinating agent.
 
 ## Verification
 
-Python: `C:/Users/admin/miniconda3/python.exe`; commands ran from `F:/VerbalVis2 - 副本 (4)7月15`.
+Validation used Python 3.11 from a local virtual environment; commands ran from the standalone repository root.
 
 1. Initial test-first run: Dashboard/Toolbox absence produced the expected missing-implementation assertion; no implementation files existed yet.
-2. Initial implementation: `-m pytest refactor_next/tests/test_dashboard_tools.py -q` — **23 passed**.
+2. Initial implementation: `-m pytest tests/test_dashboard_tools.py -q` — **23 passed**.
 3. Added failure-wrapper regression: **1 failed, 27 passed**, because failed domain query payload was incorrectly null. Corrected wrapper, reran — **28 passed**.
-4. Latest `-m pytest refactor_next/tests -q` — **53 passed**, one existing Starlette/httpx deprecation warning.
-5. Earlier bare `-m pytest -q` across the parent project — **206 passed, 3 failed**, three deprecation warnings, four subtests passed. Failures were:
-   - `refactor_next/tests/test_app.py::test_real_socket_boundary_with_transport_double`: `concurrent.futures.CancelledError` during websocket context teardown. Reported to parent; did not recur in the subsequent refactor suite run.
-   - `tests/test_extract_verbalvis_cases.py::ExtractVerbalVisCasesTest::test_compares_top15_categories_to_office_furniture_even_when_office_is_not_top15`: parent `extract_verbalvis_cases.py` is missing.
-   - `tests/test_extract_verbalvis_cases.py::ExtractVerbalVisCasesTest::test_exports_case_metrics_without_item_level_double_counting`: same missing legacy script.
-6. `git diff --check` exited zero; warnings were existing LF/CRLF notices elsewhere in the dirty parent tree.
+4. Latest `-m pytest tests -q` — **53 passed**, one existing Starlette/httpx deprecation warning.
+5. An earlier broad workspace run is archived outside this repository because it included unrelated projects and is not release evidence for this codebase.
+6. `git diff --check` exited zero; existing line-ending notices in unrelated workspace material are not part of this report.
 
 Coverage includes actual education and Olist adapters through the same create/update/filter pathway, detached payloads and snapshots, private mutation, revision conflicts, replay/foreign/copied/discarded draft rejection, no-op/read-only revisions, cancellation-safe Undo, standalone Undo, per-call rollback, schema/name collision errors, semantic chart validation, null aggregates, temporal metadata, and later-source schema drift.

@@ -1,6 +1,6 @@
 # VerbalVis 单一主线任务看板
 
-更新时间：2026-10-15。本轮以 `refactor_next` 为唯一基线，不推倒重写。执行顺序固定为：**Olist Analytical Backend → Visual Analytics Runtime → Research System**。后一里程碑不得绕过前一里程碑的验收。
+更新时间：2026-10-15。本轮以已批准的实现快照为唯一基线，不推倒重写。执行顺序固定为：**Olist Analytical Backend → Visual Analytics Runtime → Research System**。后一里程碑不得绕过前一里程碑的验收。
 
 ## Milestone 1：Analytical Backend
 
@@ -8,7 +8,7 @@
 
 | ID | 任务 | 验收标准 | 状态 |
 |---|---|---|---|
-| T00 | 固定基线 | Python / frontend 测试数量有记录；依赖可重建；生成物被 gitignore | 已完成（未在脏父仓上误打 tag） |
+| T00 | 固定基线 | Python / frontend 测试数量有记录；依赖可重建；生成物被 gitignore | 已完成（迁移前未误打 tag） |
 | T01 | 读取 9 张 Olist 原始表 | 每张表可独立读取、有行数和必要字段校验 | 已完成 |
 | T02 | 建立 canonical grains | order / item / payment / customer / seller×order 粒度明确 | 已完成 |
 | T03 | 消除多表放大 | items、payments、reviews 先聚合再关联；收入和订单数手算回归 | 已完成 |
@@ -85,5 +85,5 @@ M4 只表示实验运行材料与自动化已具备。由于当前环境没有�
 ## 已知外部限制
 
 - 当前环境无 `DASHSCOPE_API_KEY`，真实 Qwen 语音联调不能由单元测试替代。
-- 旧项目根测试仍有两个与缺失 `extract_verbalvis_cases.py` 相关的既有失败；它们不归因于 `refactor_next`。
-- 未发布、未推送、未创建干净 Git tag。父仓当前包含用户其他改动，不得用一个标签把它们误写成 M1 基线。
+- 归档源工作区的广泛测试曾有两个与缺失 `extract_verbalvis_cases.py` 相关的既有失败；它们不归因于本仓库实现。
+- 迁移前历史记录：源工作区未发布、未推送或创建干净 Git tag；独立仓库的 tag 和远程状态以当前 Git 记录为准。

@@ -1,8 +1,8 @@
-# Execution ledger — plan: refactor_next/IMPLEMENTATION.md
+# Execution ledger — plan: IMPLEMENTATION.md
 
 2026-10-12: User requested code completion after confirming dataset + interface scope. Executing the approved TASKS.md; IMPLEMENTATION.md records exact integration decisions, not a new project scope.
 
-Ruling: work in the explicitly requested refactor_next directory on existing research copy; do not create a separate worktree or alter old source. Existing root extraction-script test failures remain separately reported.
+Ruling: work in the explicitly requested repository on the approved research snapshot; do not create a separate worktree or alter archived source. Existing extraction-script test failures remain separately reported.
 
 | Shared boundary | Producer / consumer | Resolution |
 |---|---|---|
@@ -11,7 +11,7 @@ Ruling: work in the explicitly requested refactor_next directory on existing res
 | Task 1 → Task 3 | description/tools → prompts/session | generated descriptions, no domain conditionals |
 | Task 2 → Task 4 | view snapshot → renderer | old view keys retained, columns metadata added |
 | Task 3 → Task 4 | browser events | existing event names retained, sequenced input floor |
-| All tasks | source ownership | only refactor_next, no shared edits by implementers |
+| All tasks | source ownership | only the approved implementation, no shared edits by implementers |
 
 Task 1: complete, uncommitted; 23 scoped tests. Independent review findings (module lifetime, typed scalar/temporal cells) fixed and re-review clean.
 Task 2: implemented; 28 scoped tests. Review found empty-dashboard date-filter value validation gap; assigned integration fix wave.
@@ -27,7 +27,7 @@ Task 3 progress: 6 protocol + 6 session + 2 trace/prompt tests pass; real WebSoc
 
 2026-10-13 integration evidence before final fix wave: 70 new Python tests passed; frontend 34 tests/build passed (additional presentation tests subsequently added). App health, dataset metadata, static homepage: HTTP success; component style blocks identical to old source. Browser tool failed to initialize (kernel asset path missing), so no screenshot comparison claimed. Process environment DASHSCOPE_API_KEY absent (presence checked only, no secrets read).
 
-Review coordination: dataset_implementation → data_contract_review (fixed/review clean); dashboard_tools → state_tools_review (one fix assigned); root session/main → runtime_transport_review (concrete fixes assigned). integration_fixes owns only runtime/tools and associated regressions; root owns frontend/main/docs. Existing user files outside refactor_next remain untouched.
+Review coordination: dataset_implementation → data_contract_review (fixed/review clean); dashboard_tools → state_tools_review (one fix assigned); session/main → runtime_transport_review (concrete fixes assigned). integration_fixes owns only runtime/tools and associated regressions; the coordinating scope owns frontend/main/docs. Existing unrelated user files remain untouched.
 
 Ruling: tests may use transport doubles to deterministically inject races; production always connects real Qwen and never substitutes fake responses. A green test suite does not establish live provider compatibility.
 
@@ -49,7 +49,7 @@ M1 当前证据：
 - 真实 Task A：SP weekly 27 rows / 15,495 orders；
 - 真实 Task B：RJ office_furniture 212 orders vs bed_bath_table 1,357 orders。
 
-未创建 Git tag：`refactor_next` 位于包含用户其他未提交改动的父仓中，直接 tag 会把不属于本里程碑的状态标为 baseline。代码未发布、未推送。
+迁移前历史记录：源工作区未创建 Git tag 或推送；独立仓库的 tag 和远程状态以当前 Git 记录为准。
 
 ## 2026-10-13：M2 Visual Analytics Runtime
 

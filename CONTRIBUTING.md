@@ -5,7 +5,8 @@ VerbalVis is a research system. A change is acceptable only when it preserves bo
 ## Local setup
 
 ```powershell
-python -m pip install -e .
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install --no-deps -e .
 python -m pytest tests -q
 cd frontend
 npm ci

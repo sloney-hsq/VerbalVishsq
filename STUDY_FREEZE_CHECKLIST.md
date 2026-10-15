@@ -14,12 +14,12 @@
 
 ## 2. 软件与配置身份
 
-- [ ] 从干净仓库根发布，而不是从包含其他项目改动的父目录运行。
+- [ ] 从干净的仓库根目录发布，不要从包含多个项目改动的目录运行。
 - [ ] 记录 commit/tag、Python/Node 版本、依赖锁定结果和部署机器标识。
 - [ ] 记录 `experiments/olist_pilot.json` 的 `manifest_version` 与 SHA-256。
 - [ ] 记录实际 `VERBALVIS_CONFIG`、模型名称、provider endpoint 和非敏感运行参数；密钥不得进入记录。
 - [ ] S1–S4 排程均由 `scripts/prepare_pilot.py` 生成，未手工改写 URL 或条件。
-- [ ] `python -m pytest tests -q`、`npm test` 与 `npm run build` 在冻结版本通过。
+- [ ] `python -m pytest tests -q` 在仓库根目录通过；随后执行 `cd frontend`、`npm test`、`npm run build`，并以 `cd ..` 返回仓库根目录，全部在冻结版本通过。
 
 ## 3. 真实环境预飞
 

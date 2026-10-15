@@ -1,8 +1,10 @@
 # Olist exploratory adapter report
 
+> Migration-predecessor historical evidence only. This report does not state the current repository verification result; record current final verification in PROGRESS.md when it is available.
+
 ## Scope
 
-The Olist implementation is confined to `datasets/olist/interface.py`, `schema.py`, `metrics.py`, `queries.py`, and `__init__.py`, with focused coverage in `tests/test_olist_adapter.py`. The parent integration step migrated two legacy callers in `tests/test_datasets.py` and `tests/test_dashboard_tools.py`; runtime, response protocol, dashboard, toolbox and frontend production files were not changed. No commit was created.
+During the migration-predecessor phase, the Olist implementation was confined to `datasets/olist/interface.py`, `schema.py`, `metrics.py`, `queries.py`, and `__init__.py`, with focused coverage in `tests/test_olist_adapter.py`. That historical integration phase migrated two legacy callers in `tests/test_datasets.py` and `tests/test_dashboard_tools.py`; runtime, response protocol, dashboard, toolbox and frontend production files were not changed in that phase. No commit was created in that phase.
 
 The adapter intentionally exposes exactly two tools: `aggregate` and `compare_segments`. The old `compare_commerce` tool is not retained; callers must migrate to the multi-metric `aggregate` contract.
 
@@ -37,7 +39,7 @@ python -m pytest tests/test_olist_adapter.py -q
 11 failed in 2.15s
 ```
 
-Failures were the expected missing `aggregate`/`compare_segments`, registry/grain, loader-cleanup, and diagnostic behavior. The initial implementation and empty-segment regression reached 12 passing tests. The canonical-review/filter/payment/raw-table delta was again run red first (`9 failed, 8 passed`). The ZIP/lifecycle/Task-A delta was verified red (`3 failed, 16 passed`). The final late-eligibility fixture produced the expected four failures while the new `neq`/`gte`/`lte`/`is_null`, NULL-review-date, and combined scope/filter/time/segment parameter-order regressions already passed. Current focused result:
+Failures were the expected missing `aggregate`/`compare_segments`, registry/grain, loader-cleanup, and diagnostic behavior. The initial implementation and empty-segment regression reached 12 passing tests. The canonical-review/filter/payment/raw-table delta was again run red first (`9 failed, 8 passed`). The ZIP/lifecycle/Task-A delta was verified red (`3 failed, 16 passed`). The final late-eligibility fixture produced the expected four failures while the new `neq`/`gte`/`lte`/`is_null`, NULL-review-date, and combined scope/filter/time/segment parameter-order regressions already passed. Historical focused result:
 
 ```text
 24 passed in 3.93s
@@ -47,7 +49,7 @@ The first real-data load exposed an exact-float comparison defect: raw delivered
 
 ## Real Olist smoke
 
-Configured source: `../backend/data/olist`. Snapshot version during the final run: `olist-5-8e2b55985d02985e`.
+Configured source during this historical smoke test: repository-local ignored Olist data directory. Snapshot version during the final run: `olist-5-8e2b55985d02985e`.
 
 - Fresh load, all nine raw tables, and canonical construction: 4.54 s.
 - Raw rows: 99,441 orders; 112,650 items; 103,886 payments; 99,224 reviews; 99,441 customers; 32,951 products; 3,095 sellers; 71 translations; 1,000,163 geolocation rows.
@@ -61,4 +63,4 @@ No data rows beyond small verification samples were dumped.
 
 ## Full-suite compatibility result
 
-After the parent integration task migrated the legacy callers, the complete `tests` suite reports **121 passed** with one pre-existing Starlette deprecation warning. No compatibility-only third tool was added.
+In the migration-predecessor integration phase, the complete `tests` suite reported **121 passed** with one pre-existing Starlette deprecation warning. No compatibility-only third tool was added. This is historical evidence, not a claim about the current repository state.

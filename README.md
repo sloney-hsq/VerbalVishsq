@@ -1,6 +1,6 @@
 # VerbalVis：可撤销响应事务与数据集接口化可视分析
 
-这是独立于旧系统的新实现。保留原 Vue 仪表盘、图表卡片、对话时间线与麦克风外观；后端重新划分为八个核心模块。**本目录不修改或替代旧实验系统，也未发布到 GitHub。**
+这是独立于旧系统的新实现。保留原 Vue 仪表盘、图表卡片、对话时间线与麦克风外观；后端重新划分为八个核心模块。**本仓库仅限私有协作；尚未获准公开发布。任何公开仓库、公开 issue、release、tag 或归档均须先完成 [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) 的全部门槛。**
 
 ## 项目做什么
 
@@ -19,10 +19,11 @@
 
 ## 启动
 
-Python 3.11+、Node.js 20.19+。在本目录执行：
+从仓库根目录使用 Python 3.11.14 和 Node.js 20.19+。除非命令以 `cd frontend` 开始，以下命令都从仓库根目录执行：
 
 ```powershell
-python -m pip install -e .
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install --no-deps -e .
 cd frontend
 npm ci
 npm run build
@@ -41,9 +42,9 @@ $env:VERBALVIS_CONFIG = 'configs/olist.json'
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
 ```
 
-该配置默认读取 `../backend/data/olist`，不会复制数据。搬到其他机器时修改配置的 `data_dir`。配置文件里的接口、数据及 Trace 相对路径均相对本目录；`VERBALVIS_CONFIG` 自身的相对路径相对启动工作目录。
+该配置默认读取被 Git 忽略的 `datasets/olist/data`，不会复制或分发数据。将九个 Olist CSV 放入该目录，或在本地（已忽略）配置中指定其他路径。配置文件里的接口、数据及 Trace 相对路径均相对仓库根目录；`VERBALVIS_CONFIG` 的相对路径也相对该根目录解析。
 
-开发前端：在 `frontend` 执行 `npm run dev`，访问端口 5174，WebSocket 代理到 8001。
+开发前端：执行 `cd frontend` 后运行 `npm run dev`，访问端口 5174，WebSocket 代理到 8001；结束后执行 `cd ..` 返回仓库根目录。
 
 研究条件只使用规范名称：
 

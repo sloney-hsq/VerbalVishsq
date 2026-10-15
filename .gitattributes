@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+# Keep structured research data reviewable in diffs.
+*.csv text eol=lf
+*.jsonl text eol=lf
+
+*.wav binary
+*.mp3 binary
+*.zip binary

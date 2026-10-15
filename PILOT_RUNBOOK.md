@@ -25,10 +25,11 @@ Pilot 不用于宣称用户效益、任务效率或 TVCG 假设已经成立。
 
 ## 3. 首次实验前检查
 
-从本目录安装并验证：
+从仓库根目录使用 Python 3.11.14 安装并验证；除非命令以 `cd frontend` 开始，命令都在仓库根目录运行：
 
 ```powershell
-python -m pip install -e .
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install --no-deps -e .
 python -m pytest tests -q
 cd frontend
 npm ci
@@ -37,7 +38,7 @@ npm run build
 cd ..
 ```
 
-将 Olist CSV 放到 `configs/olist.json` 的 `dataset.data_dir`，再设置运行环境：
+将九个 Olist CSV 放到 `datasets/olist/data/`（即 `configs/olist.json` 的 `dataset.data_dir`），再设置运行环境：
 
 ```powershell
 $env:VERBALVIS_CONFIG = 'configs/olist.json'

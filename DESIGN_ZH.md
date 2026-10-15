@@ -1,26 +1,28 @@
 # VerbalVis 数据集接口适配与可撤销响应重构设计
 
+> 历史设计与审计基线：本文件记录设计阶段的目标、观察和当时的路径；不作为当前实现文件路径、验证状态或发布状态的权威来源。当前运行与发布说明以 README.md、PROGRESS.md 和 RELEASE_CHECKLIST.md 为准。
+
 日期：2026-10-12。状态：待用户审阅；本文件描述目标，不表示功能已实现。泛化定义已按用户澄清修正为“数据集 + 对应接口文件”，不是仅替换裸表格。
 
 ## 1. 用户目标与约束
 
-构建可以持续分析不同表格数据的完整研究系统，而不是硬编码两个问题的演示脚本。新实现位于 `refactor_next`，不覆盖旧项目。保留现有前端的布局、图表卡片、配色、语音入口及对话时间线；修改数据绑定、消息处理和领域标签，不重新设计 UI。
+构建可以持续分析不同表格数据的完整研究系统，而不是硬编码两个问题的演示脚本。审计对象是本仓库中的独立实现，不是旧实验版。保留现有前端的布局、图表卡片、配色、语音入口及对话时间线；修改数据绑定、消息处理和领域标签，不重新设计 UI。
 
 核心后端保持八个业务文件：`main.py`、`realtime.py`、`response_protocol.py`、`dashboard.py`、`tools.py`、`analytics.py`、`prompts.py`、`trace.py`。每份数据集另有一个对应接口文件，例如 `datasets/olist/interface.py`。数据集接口不是重复的 Runtime；其中可以编写领域查询与指标逻辑。包标识、配置、测试和研究文档不计入核心八文件。
 
 实验室单活动会话；同一系统支持全双工、半双工。无需 Redis、多 Worker、RAG、MCP、设备探测或复杂重连。泛化性指提供一份数据集及其接口文件即可接入；允许为新数据集编写 Python 适配代码，但不修改核心八文件和前端框架。不要求不同数据集具有相同字段、指标、工具名称或相同底层存储，不承诺自动理解任意业务含义。
 
-## 2. 代码审计与当前基线
+## 2. 历史代码审计基线
 
-审计对象是本目录中的独立 `refactor_next` 实现，不是父仓库中的旧实验版。
+审计对象是设计阶段的独立实现快照，不是当前实现文件布局的声明。
 
 - `backend/tools.py` 仍保存模块级 `views`、`active_filters`、`dashboard_revision` 和历史，生产 Session 仍依赖 LegacyToolBridge。
 - `backend/tooling/definitions.py` 将 Olist 的维度、指标、筛选列写进工具 Schema。
 - `backend/analytics/filters.py` 和 `repository.py` 依赖 `fact_order`、`fact_item` 及领域列。
 - `frontend/src/specFactory.js` 将日期类型、指标格式和部分图表方向绑定到特定字段名。
 - `frontend/src/components/Dashboard.vue` 将记录数称为 orders；ChartSlot 中存在低评分领域标签。
-- 前端已有版本化 RRT projector、图表提交和音频控制路径，可以迁移，不必重做界面。
-- 开始审计时 `refactor_next` 为空。仓库现有修改、删除和未跟踪文件属于既有工作，不在本次自动恢复或清理。
+- 设计阶段的前端已有版本化 RRT projector、图表提交和音频控制路径，可以迁移，不必重做界面。
+- 开始历史审计时目标实现为空。源快照中的修改、删除和未跟踪文件属于既有工作，不在该审计中自动恢复或清理。
 
 2026-10-12 实测：
 
