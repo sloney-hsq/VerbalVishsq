@@ -11,4 +11,6 @@ Task 1 follow-up (parent review): RED on missing eq value, numeric nominal value
 
 Task 2: RED: five visual-query tests failed for absent schemas/modules; canonical-score regression failed 4 vs 3 valid. GREEN: 38 focused tests passed; full Python suite 315 passed, one baseline warning. Ruling: distribution/relationship currently query complete observations into backend Python to compute bins, quantiles, and stable sampling; this preserves full-data accuracy but has higher memory and latency than the planned DuckDB aggregation. Measure on real data before declaring production performance.
 
+Task 2 correction (parent review): RED proved top_k incorrectly ranked orders duplicated by a second dimension; score breakdown accepted incompatible metrics; aggregate lacked effective filters and valid denominator counts. GREEN: 41 focused tests passed. Ranking now uses one row per order per target dimension and null-safe membership. Remaining performance ruling unchanged.
+
 Pre-flight interfaces: Task 1 field index feeds Task 2 predicates and Task 3 source validation. Task 2 result kinds and columns feed Task 3 contract and Task 4 renderers. Task 3 revisions, scope and selections feed Task 4 and Task 5. No contradictory public names found in the approved spec and plan.

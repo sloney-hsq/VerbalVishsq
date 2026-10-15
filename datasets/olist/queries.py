@@ -163,6 +163,28 @@ METRIC_SQL = {
     "avg_freight_ratio": "(SUM(freight_ratio_sum) / NULLIF(SUM(freight_ratio_count), 0))::DOUBLE",
 }
 
+VALID_COUNT_SQL = {
+    "order_count": "COUNT(*)::BIGINT", "item_count": "COALESCE(SUM(item_count), 0)::BIGINT",
+    "unique_customer_count": "COUNT(DISTINCT customer_unique_id)::BIGINT",
+    "revenue": "COALESCE(SUM(price_count), 0)::BIGINT", "freight_value": "COALESCE(SUM(freight_count), 0)::BIGINT",
+    "total_order_value": "COALESCE(SUM(item_count), 0)::BIGINT", "avg_order_value": "COUNT(*)::BIGINT",
+    "avg_item_price": "COALESCE(SUM(price_count), 0)::BIGINT",
+    "reviewed_order_count": "COUNT(CASE WHEN review_score BETWEEN 1 AND 5 THEN 1 END)::BIGINT",
+    "valid_delivery_order_count": "COUNT(delivery_days)::BIGINT", "late_eligible_order_count": "COUNT(is_late)::BIGINT",
+    "avg_review_score": "COUNT(CASE WHEN review_score BETWEEN 1 AND 5 THEN 1 END)::BIGINT",
+    "review_comment_ratio": "COUNT_IF(review_count > 0)::BIGINT",
+    "low_score_ratio": "COUNT(CASE WHEN review_score BETWEEN 1 AND 5 THEN 1 END)::BIGINT",
+    "one_star_ratio": "COUNT(CASE WHEN review_score BETWEEN 1 AND 5 THEN 1 END)::BIGINT",
+    "five_star_ratio": "COUNT(CASE WHEN review_score BETWEEN 1 AND 5 THEN 1 END)::BIGINT",
+    "avg_delivery_days": "COUNT(delivery_days)::BIGINT", "avg_approval_days": "COUNT(approval_days)::BIGINT",
+    "avg_dispatch_days": "COUNT(dispatch_days)::BIGINT", "avg_transit_days": "COUNT(transit_days)::BIGINT",
+    "late_ratio": "COUNT(is_late)::BIGINT", "avg_late_days": "COUNT_IF(is_late = 1 AND late_days IS NOT NULL)::BIGINT",
+    "avg_product_weight": "COALESCE(SUM(product_weight_count), 0)::BIGINT",
+    "avg_product_volume": "COALESCE(SUM(product_volume_count), 0)::BIGINT",
+    "avg_freight_per_item": "COALESCE(SUM(freight_count), 0)::BIGINT",
+    "avg_freight_ratio": "COALESCE(SUM(freight_ratio_count), 0)::BIGINT",
+}
+
 
 def _final_sql(group_fields, metrics, *, segment=False):
     selected = [_q(field) for field in group_fields]
@@ -171,7 +193,7 @@ def _final_sql(group_fields, metrics, *, segment=False):
     return ",\n            ".join(selected), group
 
 
-def build_aggregate(arguments, scope, dimension_index, metric_index):
+def build_aggregate(arguments, scope, dimension_index, metric_index, *, include_valid_counts=False):
     group_by = arguments["group_by"]
     metrics = arguments["metrics"]
     if any(field not in dimension_index or not dimension_index[field]["groupable"] for field in group_by):
@@ -211,6 +233,8 @@ def build_aggregate(arguments, scope, dimension_index, metric_index):
         else:
             raise ValueError("INVALID_FILTER_VALUE: invalid having condition")
     final_select, final_group = _final_sql(group_by, [*metrics, *additional])
+    if include_valid_counts:
+        final_select += ", " + ", ".join(f"{VALID_COUNT_SQL[metric]} AS {_q('__valid_' + metric)}" for metric in metrics)
     top_k = arguments.get("top_k")
     rank_sql = "chosen AS (SELECT * FROM group_order)"
     if top_k is not None:
@@ -220,9 +244,12 @@ def build_aggregate(arguments, scope, dimension_index, metric_index):
                 or top_k["direction"] not in {"asc", "desc"}):
             raise ValueError("INVALID_FILTER_VALUE: invalid top_k")
         dim = _q(top_k["dimension"])
-        rank_sql = (f"ranked AS (SELECT {dim}, {METRIC_SQL[top_k['metric']]} AS rank_value FROM group_order "
+        rank_select, rank_group = _group_order_select(source, [top_k["dimension"]], dimension_index)
+        rank_sql = (f"rank_order AS (SELECT {rank_select} FROM base GROUP BY {rank_group}), "
+                    f"ranked AS (SELECT {dim}, {METRIC_SQL[top_k['metric']]} AS rank_value FROM rank_order "
                     f"GROUP BY {dim} ORDER BY rank_value {top_k['direction'].upper()} NULLS LAST, {dim} ASC LIMIT {top_k['k']}), "
-                    f"chosen AS (SELECT group_order.* FROM group_order JOIN ranked USING ({dim}))")
+                    f"chosen AS (SELECT group_order.* FROM group_order JOIN ranked "
+                    f"ON group_order.{dim} IS NOT DISTINCT FROM ranked.{dim})")
     sort = arguments.get("sort")
     if sort is not None:
         if sort["field"] not in {*group_by, *metrics}:
@@ -233,12 +260,13 @@ def build_aggregate(arguments, scope, dimension_index, metric_index):
     else:
         order = ""
     limit = arguments.get("limit", 100)
-    visible = ", ".join(_q(field) for field in [*group_by, *metrics])
+    names = [*group_by, *metrics, *(['__valid_' + metric for metric in metrics] if include_valid_counts else [])]
+    visible = ", ".join(_q(field) for field in names)
     sql = f"""
-        WITH group_order AS (
+        WITH base AS (SELECT * FROM {source} WHERE {' AND '.join(clauses) if clauses else 'TRUE'}),
+        group_order AS (
             SELECT {select_group_order}
-            FROM {source}
-            WHERE {' AND '.join(clauses) if clauses else 'TRUE'}
+            FROM base
             GROUP BY {group_order_by}
         ), {rank_sql}, aggregated AS (
             SELECT {final_select} FROM chosen {final_group}
@@ -248,7 +276,7 @@ def build_aggregate(arguments, scope, dimension_index, metric_index):
         {order}
         LIMIT ?
     """
-    return sql, [*params, *having_params, limit + 1], [*group_by, *metrics], limit
+    return sql, [*params, *having_params, limit + 1], names, limit
 
 
 def build_segments(arguments, scope, dimension_index, metric_index):

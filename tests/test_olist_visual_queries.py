@@ -17,6 +17,45 @@ def test_two_dimensions_having_and_fixed_top_k(olist_csvs):
         ds.close()
 
 
+def test_top_k_ranks_distinct_orders_before_second_dimension(olist_csvs):
+    ds = _load(olist_csvs)
+    try:
+        ds._interface.connection.execute("INSERT INTO item_grain SELECT * REPLACE ('toys' AS product_category, 3 AS order_item_id) FROM item_grain WHERE order_id = 'o6' AND order_item_id = 1")
+        result = ds.execute("aggregate", {"group_by": ["customer_state", "product_category"],
+            "metrics": ["order_count"], "top_k": {"dimension": "customer_state", "metric": "order_count", "k": 1, "direction": "desc"}})
+        assert result["success"], result
+        assert {row["customer_state"] for row in result["rows"]} == {"SP"}
+        assert result["metadata"]["top_k"]["selected_members"] == ["SP"]
+    finally:
+        ds.close()
+
+
+def test_score_breakdown_rejects_noncount_metric_and_normalization_without_breakdown(olist_csvs):
+    ds = _load(olist_csvs)
+    try:
+        segments = [{"customer_state": "SP"}, {"customer_state": "RJ"}]
+        bad = ds.execute("compare_segments", {"segments": segments, "metrics": ["avg_delivery_days"], "breakdown": "review_score"})
+        assert not bad["success"] and bad["error"]["code"] == "INCOMPATIBLE_GRAIN"
+        bad = ds.execute("compare_segments", {"segments": segments, "metrics": ["reviewed_order_count"], "normalization": "within_segment"})
+        assert not bad["success"] and bad["error"]["code"] == "INCOMPATIBLE_GRAIN"
+    finally:
+        ds.close()
+
+
+def test_aggregate_reports_effective_scope_and_metric_denominator(olist_csvs):
+    ds = _load(olist_csvs)
+    try:
+        result = ds.execute("aggregate", {"group_by": ["customer_state"], "metrics": ["late_ratio"]})
+        assert result["success"], result
+        assert result["metadata"]["effective_filters"] == [{"field": "order_status", "op": "eq", "value": "delivered"}]
+        assert result["metadata"]["metric_valid_counts"]["late_ratio"] == {"SP": 2, "RJ": 2}
+        explicit = ds.execute("aggregate", {"group_by": [], "metrics": ["order_count"],
+            "filters": [{"field": "order_status", "op": "eq", "value": "canceled"}]})
+        assert explicit["metadata"]["default_scope_applied"] is False
+    finally:
+        ds.close()
+
+
 def test_segment_score_composition(olist_csvs):
     ds = _load(olist_csvs)
     try:

@@ -426,6 +426,7 @@ class Olist:
             else:
                 entry = self.metrics.METRIC_INDEX[name]
                 columns[name] = {key: entry[key] for key in ("type", "label", "description", "grain", "unit", "category")}
+                columns[name]["additive"] = name in {"item_count", "revenue", "freight_value", "total_order_value"}
         return columns
 
     def _execute_typed_segments(self, arguments, scope):
@@ -437,6 +438,8 @@ class Olist:
         normalization = arguments.get("normalization", "none")
         if normalization == "within_segment" and (breakdown != "review_score" or arguments["metrics"] != ["reviewed_order_count"]):
             raise ValueError("INCOMPATIBLE_GRAIN: normalization needs a complete additive count breakdown")
+        if breakdown == "review_score" and arguments["metrics"] != ["reviewed_order_count"]:
+            raise ValueError("INCOMPATIBLE_GRAIN: review_score breakdown requires reviewed_order_count")
         rows, memberships = [], []
         for index, segment in enumerate(segments):
             if "filters" in segment:
@@ -466,6 +469,8 @@ class Olist:
                           "limit": arguments.get("limit", 100)}
             sql, params, names, limit = self.queries.build_aggregate(query_args, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
             values = self.con.execute(sql, params).fetchall()
+            if len(values) > limit:
+                raise ValueError("RESULT_TOO_LARGE: segment breakdown exceeds requested limit")
             for values_row in values[:limit]:
                 mapped = dict(zip(names, values_row))
                 rows.append({"segment_id": ids[index], "segment": label,
@@ -476,12 +481,19 @@ class Olist:
         columns = {"segment_id": {"type": "nominal"}, "segment": {"type": "nominal"},
                    **({"breakdown": {"type": self.schema.FIELD_INDEX[breakdown]["type"], "source_field": breakdown}} if breakdown else {}),
                    **self._columns(arguments["metrics"])}
+        if breakdown == "review_score":
+            columns["reviewed_order_count"]["additive"] = True
         if normalization == "within_segment":
-            columns.update(share={"type": "quantitative", "unit": "ratio"}, segment_denominator={"type": "quantitative"})
+            columns.update(share={"type": "quantitative", "unit": "ratio", "already_normalized": True},
+                           segment_denominator={"type": "quantitative", "unit": "orders"})
+        effective, default_applied = self.common.effective_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
         return {"success": True, "dataset_version": self.version, "result_kind": "segments", "rows": rows,
                 "columns": columns, "truncated": False,
                 "metadata": {"observation_unit": "order", "overlap_count": overlap, "overlap_unit": "order",
-                             "normalization": normalization, "default_scope": {"order_status": "delivered"},
+                             "normalization": normalization, "composition_complete": breakdown == "review_score",
+                             "segment_denominator": "reviewed_order_count" if breakdown == "review_score" else None,
+                             "effective_filters": effective, "default_scope_applied": default_applied,
+                             "time_range": arguments.get("time_range"),
                              "metric_denominators": {metric: self.metrics.METRIC_INDEX[metric]["denominator"] for metric in arguments["metrics"]}}}
 
     def execute(self, name, arguments, scope=None):
@@ -499,8 +511,11 @@ class Olist:
             return {**self.relationships.execute_relationship(self.con, arguments, scope,
                 {"common": self.common, "fields": self.schema.FIELD_INDEX}), "dataset_version": self.version}
         if name == "aggregate":
-            query = self.queries.build_aggregate(arguments, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
+            query = self.queries.build_aggregate(arguments, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX,
+                                                 include_valid_counts=True)
         elif name == "compare_segments":
+            if arguments.get("normalization", "none") != "none" and not arguments.get("breakdown"):
+                raise ValueError("INCOMPATIBLE_GRAIN: normalization requires a breakdown")
             if arguments.get("breakdown") or any("filters" in segment for segment in arguments["segments"]):
                 return self._execute_typed_segments(arguments, scope)
             query = self.queries.build_segments(arguments, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
@@ -508,11 +523,33 @@ class Olist:
             raise ValueError("Unknown Olist tool")
         sql, params, names, limit = query
         raw_rows = self.con.execute(sql, params).fetchall()
+        visible_names = [name for name in names if not name.startswith("__valid_")]
+        mapped_rows = [dict(zip(names, row)) for row in raw_rows[:limit]]
+        group_by = arguments.get("group_by", []) if name == "aggregate" else []
+        valid_counts = {metric: {} for metric in arguments["metrics"]}
+        if name == "aggregate":
+            for row in mapped_rows:
+                key = str(row[group_by[0]]) if len(group_by) == 1 else str(tuple(row[field] for field in group_by)) if group_by else "all"
+                for metric in arguments["metrics"]:
+                    valid_counts[metric][key] = row.pop("__valid_" + metric)
+        effective, default_applied = self.common.effective_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
+        top_metadata = None
+        if name == "aggregate" and arguments.get("top_k"):
+            top = arguments["top_k"]
+            rank_args = {"group_by": [top["dimension"]], "metrics": [top["metric"]],
+                         "filters": arguments.get("filters", []), "limit": top["k"],
+                         "sort": {"field": top["metric"], "direction": top["direction"]}}
+            if "time_range" in arguments:
+                rank_args["time_range"] = arguments["time_range"]
+            rank_sql, rank_params, _, _ = self.queries.build_aggregate(rank_args, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
+            ranks = self.con.execute(rank_sql, rank_params).fetchall()
+            top_metadata = {**top, "selected_members": [row[0] for row in ranks[:top["k"]]], "ranking_scope": "full_requested_time_range"}
         return {"success": True, "dataset_version": self.version,
-                "rows": [{field: value for field, value in zip(names, row)} for row in raw_rows[:limit]],
-                "columns": self._columns(names), "truncated": len(raw_rows) > limit,
+                "rows": mapped_rows, "columns": self._columns(visible_names), "truncated": len(raw_rows) > limit,
                 "result_kind": "aggregate" if name == "aggregate" else "segments",
-                "metadata": {"observation_unit": "order", "default_scope": self.describe()["default_scope"],
+                "metadata": {"observation_unit": "order", "effective_filters": effective,
+                             "default_scope_applied": default_applied, "time_range": arguments.get("time_range"),
+                             "metric_valid_counts": valid_counts, "top_k": top_metadata,
                              "metric_denominators": {metric: self.metrics.METRIC_INDEX[metric]["denominator"]
                                                      for metric in arguments["metrics"]}}}
 
