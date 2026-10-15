@@ -1,5 +1,6 @@
 import { applyHighlightToSpec } from './highlightSpec.js';
 import { chartHeightForView } from './chartLayout.js';
+import { buildChartSpec } from './chartSpecs.js';
 
 export function formatFilter(filter, description = {}) {
   const metadata = filterMetadata(description, filter.field);
@@ -17,6 +18,11 @@ export function formatFilter(filter, description = {}) {
 
 /** Encodings follow the interface result, never a hard-coded domain field list. */
 export function createSpec(view, highlightElement = null) {
+  if (view.visual) {
+    const spec = buildChartSpec(view);
+    return ['bar','line','scatter'].includes(view.visual.type)
+      ? applyHighlightToSpec(spec, view, highlightElement) : spec;
+  }
   const encoding = (field, channel = 'axis') => {
     const metadata = view.columns?.[field];
     if (!metadata || !['nominal', 'ordinal', 'quantitative', 'temporal'].includes(metadata.type)) {

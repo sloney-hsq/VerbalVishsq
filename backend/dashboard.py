@@ -60,6 +60,9 @@ class Dashboard:
             if not self._history:
                 raise ValueError('No committed dashboard change to undo')
             target = deepcopy(self._history[-1])
+            current_revisions = {view['id']: view.get('view_revision', 0) for view in self._document['views']}
+            for view in target['views']:
+                view['view_revision'] = max(view.get('view_revision', 0), current_revisions.get(view['id'], 0)) + 1
             existing = {view['id'] for view in target['views']}
             target['active_view_id'] = target.get('active_view_id') if target.get('active_view_id') in existing else None
             target['highlighted'] = [view_id for view_id in target['highlighted'] if view_id in existing]

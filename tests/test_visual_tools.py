@@ -123,6 +123,54 @@ def test_replace_source_inherits_unrelated_local_scope():
     assert output["arguments"]["time_range"] == source["arguments"]["time_range"]
 
 
+def test_public_schema_exposes_visual_and_patch_contract(stack):
+    _, dashboard, toolbox = stack
+    schemas = {entry['name']: entry['parameters'] for entry in toolbox.schemas()}
+    assert schemas['create_chart']['properties']['visual']['properties']['type']['enum'] == [
+        'bar', 'line', 'scatter', 'heatmap', 'histogram', 'boxplot']
+    assert schemas['update_chart']['properties']['analysis_patch']['oneOf'][1]['properties']['replace_source']['oneOf']
+    draft = dashboard.begin_draft()
+    bad = toolbox.execute('create_chart', {**chart(), 'visual': {'type': 'nonsense', 'encoding': {}}}, draft)
+    assert not bad['success'] and bad['error']['path'] == ['visual', 'type']
+    bad = toolbox.execute('update_chart', {'view_id': 'any', 'visual_patch': {'set': {'strange.path': 1}}}, draft)
+    assert not bad['success'] and bad['error']['path'] == ['visual_patch', 'set']
+
+
+def test_undo_revision_is_nonreusable_for_stale_selection(stack):
+    _, dashboard, toolbox = stack
+    view = _create(toolbox, dashboard, chart())
+    draft = dashboard.begin_draft()
+    assert toolbox.execute('update_chart', {'view_id': view['id'], 'title': 'A'}, draft)['success']
+    dashboard.commit(draft)
+    draft = dashboard.begin_draft()
+    assert toolbox.execute('undo_dashboard', {}, draft)['success']
+    restored = dashboard.commit(draft)['views'][0]
+    assert restored['view_revision'] > 2
+    draft = dashboard.begin_draft()
+    assert toolbox.execute('update_chart', {'view_id': view['id'], 'title': 'B'}, draft)['success']
+    assert draft.document['views'][0]['view_revision'] > restored['view_revision']
+    stale = toolbox.execute('set_selection', {'source_view_id': view['id'], 'source_revision': 2,
+        'predicate': [{'field': 'subject', 'op': 'eq', 'value': 'Math'}],
+        'target_view_ids': ['not-a-target'], 'effect': 'filter'}, draft)
+    assert not stale['success'] and stale['error']['code'] == 'STALE_SOURCE_VIEW'
+
+
+def test_non_olist_field_registry_validation(stack):
+    dataset, dashboard, _ = stack
+    class Registered:
+        definitions = dataset.definitions
+        description = {**dataset.description, 'field_index': {
+            'cohort': {'type': 'nominal', 'groupable': True, 'allowed_ops': ['eq', 'in']}}}
+        def execute(self, *args):
+            return dataset.execute(*args)
+    toolbox = __import__('refactor_next.backend.tools', fromlist=['Toolbox']).Toolbox(Registered(), dashboard)
+    draft = dashboard.begin_draft()
+    bad = toolbox.execute('set_analysis_filters', {'filters': [{'field': 'cohort', 'op': 'eq', 'value': 4}]}, draft)
+    assert not bad['success'] and bad['error']['code'] == 'INVALID_FILTER_VALUE'
+    good = toolbox.execute('set_analysis_filters', {'filters': [{'field': 'cohort', 'op': 'eq', 'value': 'A'}]}, draft)
+    assert good['success']
+
+
 def test_visual_contract_uses_metadata_for_stack_color_and_log():
     from refactor_next.backend.chart_contract import validate_visual
     result = {"result_kind": "aggregate", "rows": [{"category": "A", "value": 2, "color": 3}],

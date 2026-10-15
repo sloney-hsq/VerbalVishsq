@@ -5,9 +5,12 @@ from math import isfinite
 import uuid
 
 from jsonschema import Draft202012Validator
+from jsonschema import ValidationError
 
 from .chart_contract import normalize_visual, validate_visual
 from .chart_patch import normalize_source_filters, execution_source, apply_analysis_patch, apply_visual_patch
+from .filter_contract import normalize_filters, validate_filter_conflicts
+from .selection import selection_filters, match_predicate
 
 
 def _object(properties=None, required=()):
@@ -22,18 +25,46 @@ _CHART = {'source': _SOURCE, 'chart_type': {'enum': ['bar', 'line', 'scatter']},
           'title': {'type': 'string'}}
 _FILTER = _object({'field': _STRING, 'op': _STRING,
                    'value': {}}, ('field', 'op'))
-_CREATE = _object({**_CHART, 'visual': {'type': 'object'}, 'activate': {'type': 'boolean'}}, ('source',))
+_ENCODING = _object({key: (_STRING if key != 'tooltip' else {'type': 'array', 'items': _STRING})
+                     for key in ('x', 'y', 'color', 'size', 'facet', 'tooltip')})
+_VISUAL = _object({'type': {'enum': ['bar', 'line', 'scatter', 'heatmap', 'histogram', 'boxplot']},
+                   'encoding': _ENCODING, 'stack': {'enum': ['none', 'zero', 'normalize']},
+                   'sort': _object({'field': _STRING, 'direction': {'enum': ['asc', 'desc']}}, ('field', 'direction')),
+                   'scales': _object({'x': {'enum': ['linear', 'log']}, 'y': {'enum': ['linear', 'log']},
+                                      'resolve': {'enum': ['shared', 'independent']}})}, ('type', 'encoding'))
+_VISUAL_PATHS = ['type', 'encoding.x', 'encoding.y', 'encoding.color', 'encoding.size',
+                 'encoding.facet', 'encoding.tooltip', 'sort', 'stack', 'scales.x', 'scales.y', 'scales.resolve']
+_VISUAL_SET = {**{f'encoding.{key}': value for key, value in _ENCODING['properties'].items()},
+               'type': _VISUAL['properties']['type'], 'sort': _VISUAL['properties']['sort'],
+               'stack': _VISUAL['properties']['stack'],
+               'scales.x': {'enum': ['linear', 'log']}, 'scales.y': {'enum': ['linear', 'log']},
+               'scales.resolve': {'enum': ['shared', 'independent']}}
+_VISUAL_PATCH = _object({'set': _object(_VISUAL_SET),
+                         'unset': {'type': 'array', 'items': {'enum': _VISUAL_PATHS}, 'uniqueItems': True}})
+_FILTER_CHANGES = _object({'upsert': {'type': 'array', 'items': _FILTER},
+                           'remove': {'type': 'array', 'items': _STRING, 'uniqueItems': True}})
+_ANALYSIS_PATCH = {'oneOf': [
+    _object({'set': {'type': 'object'}, 'unset': {'type': 'array', 'items': _STRING, 'uniqueItems': True},
+             'filter_changes': _FILTER_CHANGES}),
+    _object({'replace_source': _SOURCE, 'inherit_scope': {'const': True}}, ('replace_source', 'inherit_scope'))]}
+_CREATE = _object({**_CHART, 'visual': _VISUAL, 'activate': {'type': 'boolean'}}, ('source',))
 _CREATE['anyOf'] = [{'required': ['visual']}, {'required': ['chart_type', 'x', 'y']}]
-_UPDATE = _object({'view_id': _STRING, **_CHART, 'analysis_patch': {'type': 'object'},
-                   'visual_patch': {'type': 'object'}}, ('view_id',))
-_FORK = _object({'view_id': _STRING, 'analysis_patch': {'type': 'object'},
-                 'visual_patch': {'type': 'object'}, 'title': {'type': 'string'},
+_UPDATE = _object({'view_id': _STRING, **_CHART, 'analysis_patch': _ANALYSIS_PATCH,
+                   'visual_patch': _VISUAL_PATCH}, ('view_id',))
+_FORK = _object({'view_id': _STRING, 'analysis_patch': _ANALYSIS_PATCH,
+                 'visual_patch': _VISUAL_PATCH, 'title': {'type': 'string'},
                  'scope_mode': {'enum': ['snapshot', 'linked']}}, ('view_id',))
+_SELECTION = _object({'source_view_id': _STRING, 'source_revision': {'type': 'integer', 'minimum': 1},
+                      'predicate': {'type': 'array', 'minItems': 1, 'items': _FILTER},
+                      'target_view_ids': {'type': 'array', 'minItems': 1, 'uniqueItems': True, 'items': _STRING},
+                      'effect': {'enum': ['highlight', 'filter', 'clear']}},
+                     ('source_view_id', 'source_revision', 'target_view_ids', 'effect'))
 _PUBLIC = [
     ('describe_dataset', 'Describe the active dataset, metrics, fields and shared filters.', _object()),
     ('create_chart', 'Create a typed chart from a registered read-only dataset tool.', _CREATE),
     ('update_chart', 'Patch an existing chart; omitted properties are preserved.', _UPDATE),
     ('fork_chart', 'Copy a chart with snapshot or linked scope.', _FORK),
+    ('set_selection', 'Apply or clear a marked source selection on explicit target views.', _SELECTION),
     ('delete_chart', 'Delete a chart by its view ID.', _object({'view_id': _STRING}, ('view_id',))),
     ('set_analysis_filters', 'Replace shared filters and recompute every chart atomically.', _object({'filters': {'type': 'array', 'items': _FILTER}}, ('filters',))),
     ('highlight_chart', 'Highlight one chart or clear highlighting with a null view_id.', _object({'view_id': {'type': ['string', 'null']}, 'element': {'type': ['object', 'null']}, 'dim_others': {'type': 'boolean'}}, ('view_id',))),
@@ -67,6 +98,9 @@ class Toolbox:
                            for definition in dataset.definitions]
         self._definitions['create_chart']['parameters']['properties']['source'] = {'oneOf': source_branches}
         self._definitions['update_chart']['parameters']['properties']['source'] = {'oneOf': source_branches}
+        for name in ('update_chart', 'fork_chart'):
+            patch = self._definitions[name]['parameters']['properties']['analysis_patch']
+            patch['oneOf'][1]['properties']['replace_source'] = {'oneOf': source_branches}
         self._validators = {name: Draft202012Validator(definition['parameters']) for name, definition in self._definitions.items()}
 
     def schemas(self):
@@ -107,8 +141,10 @@ class Toolbox:
             if code not in {'INVALID_FILTER_VALUE', 'FILTER_CONFLICT', 'INCOMPATIBLE_GRAIN',
                             'INCOMPATIBLE_ENCODING', 'RESULT_TOO_LARGE', 'INVALID_SELECTION', 'STALE_SOURCE_VIEW'}:
                 code = 'tool_error'
-            return {'success': False, 'payload': None,
-                    'error': {'code': code, 'message': message}}
+            error = {'code': code, 'message': message}
+            if isinstance(exc, ValidationError):
+                error['path'] = list(exc.absolute_path)
+            return {'success': False, 'payload': None, 'error': error}
 
     def _query(self, name, arguments, filters):
         if name not in self._domain_names:
@@ -150,7 +186,8 @@ class Toolbox:
                 'metadata': deepcopy(view.get('metadata', {}))}
 
     def _scope_for(self, view, shared_filters):
-        return view.get('scope_filters', []) if view.get('scope_mode') == 'snapshot' else shared_filters
+        base = view.get('scope_filters', []) if view.get('scope_mode') == 'snapshot' else shared_filters
+        return [*deepcopy(base), *(deepcopy(item) for filters in view.get('selection_filters', {}).values() for item in filters)]
 
     def _describe_dataset(self, args, draft):
         return self._description
@@ -203,12 +240,16 @@ class Toolbox:
         original = self._view(draft.document, args['view_id'])
         mode = args.get('scope_mode', 'snapshot')
         if mode == 'snapshot' and original.get('scope_mode') != 'snapshot':
+            effective_scope = self._scope_for(original, draft.document['filters'])
             original['scope_mode'] = 'snapshot'
-            original['scope_filters'] = deepcopy(draft.document['filters'])
+            original['scope_filters'] = effective_scope
+            original['selection_filters'] = {}
+            original['view_revision'] += 1
         clone = deepcopy(original)
         clone['id'] = uuid.uuid4().hex
         clone['highlighted'] = False
-        clone['selection_filters'] = {}
+        if mode == 'snapshot':
+            clone['selection_filters'] = {}
         clone['selection_highlights'] = {}
         clone['view_revision'] = 1
         clone['scope_mode'] = mode
@@ -216,7 +257,7 @@ class Toolbox:
             clone.pop('scope_filters', None)
             if original.get('scope_mode') == 'snapshot':
                 clone.update(self._render({'source': clone['source'], 'visual': clone['visual'], 'title': clone['title']},
-                                          draft.document['filters']))
+                                          self._scope_for(clone, draft.document['filters'])))
         draft.document['views'].append(clone)
         if any(key in args for key in ('analysis_patch', 'visual_patch', 'title')):
             update = {'view_id': clone['id']}
@@ -227,6 +268,9 @@ class Toolbox:
     def _delete_chart(self, args, draft):
         view = self._view(draft.document, args['view_id'])
         draft.document['views'].remove(view)
+        for target in draft.document['views']:
+            if view['id'] in target.get('selection_filters', {}):
+                target.setdefault('selection_source_status', {})[view['id']] = 'source_removed'
         if draft.document.get('active_view_id') == view['id']:
             draft.document['active_view_id'] = draft.document['views'][-1]['id'] if draft.document['views'] else None
         if view['id'] in draft.document['highlighted']:
@@ -239,7 +283,6 @@ class Toolbox:
     def _validate_filters(self, filters):
         field_index = self._description.get('field_index')
         if isinstance(field_index, dict):
-            from refactor_next.datasets.olist.query_common import normalize_filters, validate_filter_conflicts
             normalized = normalize_filters(filters, field_index)
             validate_filter_conflicts(normalized)
             return
@@ -290,10 +333,50 @@ class Toolbox:
                 views.append(view)
                 continue
             config = {'source': view['source'], 'visual': view['visual'], 'title': view['title']}
-            views.append({**view, **self._render(config, filters), 'view_revision': view.get('view_revision', 1) + 1})
+            views.append({**view, **self._render(config, self._scope_for(view, filters)), 'view_revision': view.get('view_revision', 1) + 1})
         draft.document['views'] = views
         draft.document['filters'] = deepcopy(filters)
         return draft.document
+
+    def _set_selection(self, args, draft):
+        source = next((view for view in draft.document['views'] if view['id'] == args['source_view_id']), None)
+        if source is None and args['effect'] != 'clear':
+            raise ValueError('INVALID_SELECTION: source view was removed')
+        if source is not None and source.get('view_revision') != args['source_revision']:
+            raise ValueError('STALE_SOURCE_VIEW: source view revision changed')
+        target_ids = args['target_view_ids']
+        if args['source_view_id'] in target_ids or len(set(target_ids)) != len(target_ids):
+            raise ValueError('INVALID_SELECTION: targets must be distinct from source')
+        targets = [self._view(draft.document, view_id) for view_id in target_ids]
+        effect = args['effect']
+        raw_filters = selection_filters(source, args.get('predicate')) if effect == 'filter' else []
+        if effect == 'highlight':
+            match_predicate(source, args.get('predicate'))
+        if effect == 'filter':
+            self._validate_filters(raw_filters)
+        replacements = {}
+        for target in targets:
+            candidate = deepcopy(target)
+            if effect == 'highlight':
+                match_predicate(candidate, args['predicate'])
+                candidate.setdefault('selection_highlights', {})[args['source_view_id']] = deepcopy(args['predicate'])
+            else:
+                had_selection = args['source_view_id'] in candidate.get('selection_filters', {}) or args['source_view_id'] in candidate.get('selection_highlights', {})
+                if effect == 'clear' and not had_selection:
+                    replacements[target['id']] = candidate
+                    continue
+                candidate.setdefault('selection_filters', {}).pop(args['source_view_id'], None)
+                candidate.setdefault('selection_highlights', {}).pop(args['source_view_id'], None)
+                candidate.setdefault('selection_source_status', {}).pop(args['source_view_id'], None)
+                if effect == 'filter':
+                    candidate['selection_filters'][args['source_view_id']] = deepcopy(raw_filters)
+                config = {'source': candidate['source'], 'visual': candidate['visual'], 'title': candidate['title']}
+                candidate.update(self._render(config, self._scope_for(candidate, draft.document['filters'])))
+                candidate['view_revision'] += 1
+            replacements[target['id']] = candidate
+        draft.document['views'] = [replacements.get(view['id'], view) for view in draft.document['views']]
+        return {'source_view_id': args['source_view_id'], 'target_view_ids': target_ids, 'effect': effect,
+                'effective_filters': raw_filters}
 
     def _highlight_chart(self, args, draft):
         view_id = args['view_id']

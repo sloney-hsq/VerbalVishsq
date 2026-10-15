@@ -279,7 +279,7 @@ def build_aggregate(arguments, scope, dimension_index, metric_index, *, include_
     return sql, [*params, *having_params, limit + 1], names, limit
 
 
-def build_segments(arguments, scope, dimension_index, metric_index):
+def build_segments(arguments, scope, dimension_index, metric_index, *, include_valid_counts=False):
     segments = arguments["segments"]
     metrics = arguments["metrics"]
     if any(metric not in metric_index for metric in metrics):
@@ -298,7 +298,7 @@ def build_segments(arguments, scope, dimension_index, metric_index):
         parsed.append((index, label, dimensions))
         all_segment_fields.extend(dimensions)
     common_filters = [*(scope or []), *arguments.get("filters", [])]
-    explicit_status = any(item.get("field") == "order_status" for item in common_filters if isinstance(item, dict)) or "order_status" in all_segment_fields
+    explicit_status = any(item.get("field") == "order_status" for item in common_filters if isinstance(item, dict))
     common_filters = _scope(common_filters, explicit_status=explicit_status)
     filter_fields = [item.get("field") for item in common_filters if isinstance(item, dict) and item.get("field") in dimension_index]
     source = "item_grain" if _needs_item_source([*all_segment_fields, *filter_fields], dimension_index) else "order_grain"
@@ -309,6 +309,8 @@ def build_segments(arguments, scope, dimension_index, metric_index):
     for index, label, dimensions in parsed:
         seed_params.extend([index, label])
         segment_filters = [{"field": field, "op": "eq", "value": value} for field, value in dimensions.items()]
+        if not explicit_status and "order_status" not in dimensions:
+            segment_filters.insert(0, {"field": "order_status", "op": "eq", "value": "delivered"})
         segment_clauses, segment_params = _filter_sql(segment_filters, dimension_index)
         unions.append(
             f"SELECT ?::INTEGER AS _segment_index, ?::VARCHAR AS segment, * FROM {source} "
@@ -321,6 +323,8 @@ def build_segments(arguments, scope, dimension_index, metric_index):
         "segment": {"column": "segment"},
     })
     final_select, final_group = _final_sql(["_segment_index", "segment"], metrics)
+    if include_valid_counts:
+        final_select += ", " + ", ".join(f"{VALID_COUNT_SQL[metric]} AS {_q('__valid_' + metric)}" for metric in metrics)
     limit = arguments.get("limit", 100)
     zero_metrics = {"order_count", "item_count", "unique_customer_count", "revenue", "freight_value", "total_order_value"}
     result_metrics = ", ".join(
@@ -328,6 +332,8 @@ def build_segments(arguments, scope, dimension_index, metric_index):
         else f"a.{_q(metric)} AS {_q(metric)}"
         for metric in metrics
     )
+    if include_valid_counts:
+        result_metrics += ", " + ", ".join(f"COALESCE(a.{_q('__valid_' + metric)}, 0) AS {_q('__valid_' + metric)}" for metric in metrics)
     seeds = ", ".join("(?::INTEGER, ?::VARCHAR)" for _ in parsed)
     sql = f"""
         WITH segment_seed(_segment_index, segment) AS (VALUES {seeds}),
@@ -347,4 +353,5 @@ def build_segments(arguments, scope, dimension_index, metric_index):
         ORDER BY s._segment_index
         LIMIT ?
     """
-    return sql, [*seed_params, *params, limit + 1], ["segment", *metrics], limit
+    return sql, [*seed_params, *params, limit + 1], ["segment", *metrics,
+        *(['__valid_' + metric for metric in metrics] if include_valid_counts else [])], limit

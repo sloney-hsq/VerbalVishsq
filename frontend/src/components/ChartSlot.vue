@@ -15,6 +15,13 @@
       <div class="chart-card__badges">
         <span v-if="view.top_n || view.limit">Top {{ view.top_n || view.limit }}</span>
         <span v-if="view.normalize">100% stacked</span>
+        <span v-if="view.visual?.stack === 'normalize'">100% stacked</span>
+        <span v-if="view.scope_mode === 'snapshot'">Fixed scope</span>
+        <span v-if="view.metadata?.sampling?.sampled">Sampled {{ view.metadata.sampling.selected_count }} points</span>
+        <span v-if="view.metadata?.overlap_count > 0">Overlap {{ view.metadata.overlap_count }}</span>
+        <span v-if="view.metadata?.valid_count != null && view.metadata?.missing_count > 0">{{ view.metadata.valid_count }} valid / {{ view.metadata.missing_count }} missing</span>
+        <span v-if="Object.keys(view.selection_filters || {}).length">Filtered by selection</span>
+        <span v-if="Object.keys(view.selection_source_status || {}).length">Source removed</span>
         <span v-if="hasSharedOrder">Shared order</span>
         <span v-if="view.focus_x">Focus {{ view.focus_x }}</span>
         <span v-if="resolvedHighlight" class="highlight-badge">
@@ -68,6 +75,9 @@ const chartTypeLabel = computed(() => ({
   line: "Line",
   bar: "Bar",
   scatter: "Scatter",
+  heatmap: "Heatmap",
+  histogram: "Histogram",
+  boxplot: "Box plot",
 }[props.view.chart_type] || props.view.chart_type));
 const hasSharedOrder = computed(() => (
   props.view.order_contract?.mode === "shared_rank" &&

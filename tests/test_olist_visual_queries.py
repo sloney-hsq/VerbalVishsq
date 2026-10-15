@@ -66,6 +66,31 @@ def test_segment_score_composition(olist_csvs):
         assert result["success"], result
         assert len(result["rows"]) == 10
         assert sum(row["share"] for row in result["rows"] if row["segment_id"] == "sp") == pytest.approx(1)
+        assert result['columns']['breakdown']['type'] == 'ordinal'
+        assert result['columns']['breakdown']['sort_order'] == [1, 2, 3, 4, 5]
+        assert result['metadata']['metric_valid_counts']['reviewed_order_count']['sp:1'] >= 0
+    finally:
+        ds.close()
+
+
+def test_legacy_and_typed_segment_metadata_tracks_scope_and_valid_counts(olist_csvs):
+    ds = _load(olist_csvs)
+    try:
+        legacy = ds.execute('compare_segments', {'segments': [
+            {'customer_state': 'SP'}, {'customer_state': 'RJ'}], 'metrics': ['avg_delivery_days']})
+        assert legacy['success'], legacy
+        assert legacy['metadata']['metric_valid_counts']['avg_delivery_days']['legacy-1'] > 0
+        assert legacy['metadata']['effective_filters_by_segment']['legacy-1'][0] == {
+            'field': 'order_status', 'op': 'eq', 'value': 'delivered'}
+        typed = ds.execute('compare_segments', {'segments': [
+            {'id': 'cancel', 'label': 'Canceled', 'filters': [{'field': 'order_status', 'op': 'eq', 'value': 'canceled'}]},
+            {'id': 'sp', 'label': 'SP', 'filters': [{'field': 'customer_state', 'op': 'eq', 'value': 'SP'}]}],
+            'metrics': ['order_count']})
+        assert typed['success'], typed
+        assert typed['metadata']['default_scope_applied_by_segment'] == {'cancel': False, 'sp': True}
+        assert typed['metadata']['effective_filters_by_segment']['cancel'] == [
+            {'field': 'order_status', 'op': 'eq', 'value': 'canceled'}]
+        assert typed['metadata']['metric_valid_counts']['order_count']['sp'] > 0
     finally:
         ds.close()
 
