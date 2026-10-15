@@ -171,6 +171,40 @@ def test_non_olist_field_registry_validation(stack):
     assert good['success']
 
 
+def test_filter_id_upsert_via_public_schema_and_duplicate_rejected(stack):
+    _, dashboard, toolbox = stack
+    source = chart()['source']
+    source['arguments']['filters'] = [{'field': 'cohort', 'op': 'eq', 'value': 'A'}]
+    view = _create(toolbox, dashboard, {'source': source,
+        'visual': {'type': 'bar', 'encoding': {'x': 'subject', 'y': 'mean_score'}}})
+    filter_id = view['source']['arguments']['filters'][0]['id']
+    draft = dashboard.begin_draft()
+    updated = toolbox.execute('update_chart', {'view_id': view['id'],
+        'analysis_patch': {'filter_changes': {'upsert': [
+            {'id': filter_id, 'field': 'cohort', 'op': 'eq', 'value': 'B'}]}}}, draft)
+    assert updated['success'], updated
+    assert updated['payload']['source']['arguments']['filters'] == [
+        {'id': filter_id, 'field': 'cohort', 'op': 'eq', 'value': 'B'}]
+    duplicate = toolbox.execute('update_chart', {'view_id': view['id'],
+        'analysis_patch': {'filter_changes': {'upsert': [
+            {'id': filter_id, 'field': 'cohort', 'op': 'eq', 'value': 'A'},
+            {'id': filter_id, 'field': 'cohort', 'op': 'eq', 'value': 'B'}]}}}, draft)
+    assert not duplicate['success'] and duplicate['error']['code'] == 'INVALID_FILTER_VALUE'
+
+
+def test_legacy_highlight_rejects_invalid_and_disjoint_clauses(stack):
+    _, dashboard, toolbox = stack
+    view = _create(toolbox, dashboard, chart())
+    draft = dashboard.begin_draft()
+    bad = toolbox.execute('highlight_chart', {'view_id': view['id'],
+        'element': {'subject': 'Math', 'mean_score': 999}}, draft)
+    assert not bad['success'] and bad['error']['code'] == 'INVALID_SELECTION'
+    assert draft.document['highlight_element'] is None
+    unknown = toolbox.execute('highlight_chart', {'view_id': view['id'],
+        'element': {'subject': 'Math', 'bogus': 'A'}}, draft)
+    assert not unknown['success'] and draft.document['highlight_element'] is None
+
+
 def test_visual_contract_uses_metadata_for_stack_color_and_log():
     from refactor_next.backend.chart_contract import validate_visual
     result = {"result_kind": "aggregate", "rows": [{"category": "A", "value": 2, "color": 3}],

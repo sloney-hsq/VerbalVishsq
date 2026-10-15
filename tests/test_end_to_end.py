@@ -31,7 +31,10 @@ def test_real_education_interface_chart_filter_undo_through_session():
             await batch('undo_dashboard', {})
             after = session.dashboard.snapshot()
             assert after['dashboard_revision'] == 3
-            assert after['views'] == before['views'] and after['filters'] == []
+            assert [{key: value for key, value in view.items() if key != 'view_revision'} for view in after['views']] == [
+                {key: value for key, value in view.items() if key != 'view_revision'} for view in before['views']]
+            assert after['views'][0]['view_revision'] > before['views'][0]['view_revision']
+            assert after['filters'] == []
             assert len([x for x in browser if x['type'] == 'dashboard_commit']) == 3
         finally:
             await session.close()

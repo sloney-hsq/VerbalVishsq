@@ -57,13 +57,21 @@ def apply_analysis_patch(source, patch, filter_ids=None):
         if not isinstance(changes, dict) or set(changes) - {"upsert", "remove"}:
             raise ValueError("INVALID_FILTER_VALUE: invalid filter changes")
         filters = arguments.setdefault("filters", [])
+        if len({item["id"] for item in filters}) != len(filters):
+            raise ValueError("INVALID_FILTER_VALUE: duplicate filter IDs")
         by_id = {item["id"]: index for index, item in enumerate(filters)}
+        if len(set(changes.get("remove", []))) != len(changes.get("remove", [])):
+            raise ValueError("INVALID_FILTER_VALUE: duplicate remove IDs")
         for filter_id in changes.get("remove", []):
             if filter_id not in by_id:
                 raise ValueError("INVALID_FILTER_VALUE: unknown filter ID")
             filters = [item for item in filters if item["id"] != filter_id]
         by_id = {item["id"]: index for index, item in enumerate(filters)}
-        for item in changes.get("upsert", []):
+        upserts = changes.get("upsert", [])
+        explicit_ids = [item["id"] for item in upserts if "id" in item]
+        if len(set(explicit_ids)) != len(explicit_ids) or set(explicit_ids) & set(changes.get("remove", [])):
+            raise ValueError("INVALID_FILTER_VALUE: duplicate or conflicting filter edits")
+        for item in upserts:
             item = deepcopy(item)
             item.setdefault("id", uuid.uuid4().hex)
             if item["id"] in by_id:

@@ -72,3 +72,30 @@ def selection_filters(view, predicate):
         elif field not in _BIN_START.values():
             raw.append({'field': source, 'op': item['op'], 'value': item['value']})
     return raw
+
+
+def legacy_highlight_matches(view, element):
+    """Reject invalid or disjoint clauses rather than widening a highlight."""
+    if not isinstance(element, dict) or not element:
+        raise ValueError('INVALID_SELECTION: highlight element must contain clauses')
+    if 'clauses' in element:
+        clauses = element['clauses']
+    elif 'field' in element:
+        clauses = [element]
+    else:
+        aliases = {'x_value': view.get('x_field'), 'series_value': view.get('color')}
+        clauses = [{'field': aliases.get(field, field), 'value': value} for field, value in element.items()]
+    if not isinstance(clauses, list) or not clauses:
+        raise ValueError('INVALID_SELECTION: highlight requires clauses')
+    normalized = []
+    for clause in clauses:
+        if not isinstance(clause, dict) or set(clause) - {'field', 'value'} or 'field' not in clause or 'value' not in clause:
+            raise ValueError('INVALID_SELECTION: malformed highlight clause')
+        field = {'x': view.get('x_field'), 'series': view.get('color'),
+                 'color': view.get('color')}.get(clause['field'], clause['field'])
+        if field not in view.get('columns', {}) or not any(field in row for row in view.get('data', [])):
+            raise ValueError('INVALID_SELECTION: highlight field is not displayed')
+        normalized.append((field, clause['value']))
+    if not any(all(row.get(field) == value for field, value in normalized) for row in view['data']):
+        raise ValueError('INVALID_SELECTION: highlight clauses do not identify a displayed mark')
+    return normalized

@@ -17,7 +17,7 @@
         <span v-if="view.normalize">100% stacked</span>
         <span v-if="view.visual?.stack === 'normalize'">100% stacked</span>
         <span v-if="view.scope_mode === 'snapshot'">Fixed scope</span>
-        <span v-if="view.metadata?.sampling?.sampled">Sampled {{ view.metadata.sampling.selected_count }} points</span>
+        <span v-if="view.metadata?.sampling?.sampled">Sampled {{ view.metadata.sampling.actual_points }} points</span>
         <span v-if="view.metadata?.overlap_count > 0">Overlap {{ view.metadata.overlap_count }}</span>
         <span v-if="view.metadata?.valid_count != null && view.metadata?.missing_count > 0">{{ view.metadata.valid_count }} valid / {{ view.metadata.missing_count }} missing</span>
         <span v-if="Object.keys(view.selection_filters || {}).length">Filtered by selection</span>
@@ -84,7 +84,7 @@ const hasSharedOrder = computed(() => (
   props.view.order_contract?.verified === true
 ));
 const chartBodyStyle = computed(() => ({
-  minHeight: `${chartHeightForView(props.view)}px`,
+  minHeight: props.view.chart_type === 'heatmap' ? '0px' : `${chartHeightForView(props.view)}px`,
 }));
 
 watch(
@@ -256,7 +256,7 @@ function clearChart() {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .chart-card__body :deep(.vega-embed) {

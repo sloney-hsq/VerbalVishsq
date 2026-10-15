@@ -54,4 +54,6 @@ test('highlight inference uses declared and actual result fields without domain 
 
 test('structured clauses that never co-occur do not create a highlight badge', () => {
   assert.equal(resolveHighlight(view, {x_value:'2026-01',series_value:'Beta'}), null);
+  assert.equal(resolveHighlight(view, {clauses:[{field:'group',value:'Alpha'},{field:'amount',value:999}]}), null);
+  assert.equal(resolveHighlight(view, {clauses:[{field:'group',value:'Alpha'},{field:'bogus',value:'x'}]}), null);
 });

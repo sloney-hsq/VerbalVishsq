@@ -42,11 +42,12 @@ export function resolveHighlight(view, highlightElement) {
   if (!data.length) return null;
 
   const rawClauses = clausesFromElement(view, data, highlightElement);
+  if (!rawClauses.length) return null;
   const clauses = rawClauses
     .map((clause) => normalizeClause(view, data, clause))
     .filter(Boolean);
 
-  if (!clauses.length) return null;
+  if (clauses.length !== rawClauses.length) return null;
 
   const matchedCount = data.filter((datum) => datumMatchesClauses(datum, clauses)).length;
   if (matchedCount < 1) return null;
@@ -106,7 +107,7 @@ function parseExplicitClauses(text) {
   const clauses = [];
   for (const segment of segments) {
     const match = segment.match(/^([A-Za-z_][\w-]*)\s*(?:=|:|为|是)\s*(.+)$/i);
-    if (!match) continue;
+    if (!match) return [];
     clauses.push({
       field: match[1],
       value: stripQuotes(match[2].trim()),

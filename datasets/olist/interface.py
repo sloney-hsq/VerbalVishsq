@@ -546,16 +546,23 @@ class Olist:
         mapped_rows = [dict(zip(names, row)) for row in raw_rows[:limit]]
         group_by = arguments.get("group_by", []) if name == "aggregate" else []
         valid_counts = {metric: {} for metric in arguments["metrics"]}
+        row_valid_counts = []
         if name == "aggregate":
             for row in mapped_rows:
                 key = str(row[group_by[0]]) if len(group_by) == 1 else str(tuple(row[field] for field in group_by)) if group_by else "all"
+                row_counts = {}
                 for metric in arguments["metrics"]:
-                    valid_counts[metric][key] = row.pop("__valid_" + metric)
+                    row_counts[metric] = row.pop("__valid_" + metric)
+                    valid_counts[metric][key] = row_counts[metric]
+                row_valid_counts.append(row_counts)
         else:
             for index, row in enumerate(mapped_rows):
                 key = f"legacy-{index + 1}"
+                row_counts = {}
                 for metric in arguments["metrics"]:
-                    valid_counts[metric][key] = row.pop("__valid_" + metric)
+                    row_counts[metric] = row.pop("__valid_" + metric)
+                    valid_counts[metric][key] = row_counts[metric]
+                row_valid_counts.append(row_counts)
         effective, default_applied = self.common.effective_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
         per_segment = {}
         per_segment_defaults = {}
@@ -583,6 +590,7 @@ class Olist:
                              "effective_filters_by_segment": per_segment,
                              "default_scope_applied_by_segment": per_segment_defaults,
                              "metric_valid_counts": valid_counts, "top_k": top_metadata,
+                             "row_valid_counts": row_valid_counts,
                              "metric_denominators": {metric: self.metrics.METRIC_INDEX[metric]["denominator"]
                                                      for metric in arguments["metrics"]}}}
 

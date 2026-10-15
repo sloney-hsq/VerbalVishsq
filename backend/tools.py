@@ -25,6 +25,8 @@ _CHART = {'source': _SOURCE, 'chart_type': {'enum': ['bar', 'line', 'scatter']},
           'title': {'type': 'string'}}
 _FILTER = _object({'field': _STRING, 'op': _STRING,
                    'value': {}}, ('field', 'op'))
+_FILTER_EDIT = _object({'id': _STRING, 'field': _STRING, 'op': _STRING,
+                        'value': {}}, ('field', 'op'))
 _ENCODING = _object({key: (_STRING if key != 'tooltip' else {'type': 'array', 'items': _STRING})
                      for key in ('x', 'y', 'color', 'size', 'facet', 'tooltip')})
 _VISUAL = _object({'type': {'enum': ['bar', 'line', 'scatter', 'heatmap', 'histogram', 'boxplot']},
@@ -41,7 +43,7 @@ _VISUAL_SET = {**{f'encoding.{key}': value for key, value in _ENCODING['properti
                'scales.resolve': {'enum': ['shared', 'independent']}}
 _VISUAL_PATCH = _object({'set': _object(_VISUAL_SET),
                          'unset': {'type': 'array', 'items': {'enum': _VISUAL_PATHS}, 'uniqueItems': True}})
-_FILTER_CHANGES = _object({'upsert': {'type': 'array', 'items': _FILTER},
+_FILTER_CHANGES = _object({'upsert': {'type': 'array', 'items': _FILTER_EDIT},
                            'remove': {'type': 'array', 'items': _STRING, 'uniqueItems': True}})
 _ANALYSIS_PATCH = {'oneOf': [
     _object({'set': {'type': 'object'}, 'unset': {'type': 'array', 'items': _STRING, 'uniqueItems': True},
@@ -154,7 +156,12 @@ class Toolbox:
         result = self.dataset.execute(name, deepcopy(clean), deepcopy(filters))
         if not result.get('success'):
             error = result.get('error', {})
-            raise ValueError(f"{error.get('code', 'dataset_error')}: {error.get('message', 'Dataset query failed')}")
+            code = error.get('code', 'dataset_error')
+            message = error.get('message', 'Dataset query failed')
+            if code in {'INVALID_FILTER_VALUE', 'FILTER_CONFLICT', 'INCOMPATIBLE_GRAIN',
+                        'INCOMPATIBLE_ENCODING', 'RESULT_TOO_LARGE'}:
+                raise ValueError(f'{code}: {message}')
+            raise ValueError(message)
         if result.get('dataset_version') != self._description['version']:
             raise ValueError('Dataset result version mismatch')
         return result
@@ -381,7 +388,10 @@ class Toolbox:
     def _highlight_chart(self, args, draft):
         view_id = args['view_id']
         if view_id is not None:
-            self._view(draft.document, view_id)
+            view = self._view(draft.document, view_id)
+            if args.get('element') is not None:
+                from .selection import legacy_highlight_matches
+                legacy_highlight_matches(view, args['element'])
         for view in draft.document['views']:
             view['highlighted'] = view['id'] == view_id
         draft.document['highlighted'] = [view_id] if view_id is not None else []

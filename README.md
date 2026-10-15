@@ -12,7 +12,7 @@
 
 | 接口 | 数据 | 接口工具 | 典型口径 |
 |---|---|---|---|
-| Olist | 9 张实际 CSV，只读加载 | `aggregate` / `compare_segments` | 销售、评分、配送、商品物流与 seller 指标 |
+| Olist | 9 张实际 CSV，只读加载 | `aggregate` / `compare_segments` / `distribution` / `relationship` | 销售、评分、配送、商品物流与 seller 指标 |
 | Education | 明确标注的合成教学数据 | `summarize_learning` | assessment 数、学生数、成绩均值、出勤率 |
 
 两者使用不同字段、工具名和参数；没有在 `realtime.py` 或图表渲染器里增加“如果是教育/电商”的分支。Olist 保留 order、item、payment、customer 和 seller×order 粒度，查询默认只统计 delivered 订单；revenue 为 item price，不包括 freight。同一订单的多条 review 按 creation timestamp、review ID 降序选取唯一 canonical record。合成教育数据不代表真实用户研究。
@@ -138,7 +138,9 @@ Olist 的核心查询不按问题名称拆成多个工具，而由一个语义�
 }
 ```
 
-`aggregate` 限制为 0/1 个 group-by 和 1–4 个 metric，避免演变成任意 OLAP/SQL 接口。`compare_segments` 用于在共同口径下比较显式 segment。值全部参数绑定；`between` 两端包含，`time_range` 使用 `[start, end)`。公开 Tool Schema 中不保留旧 `compare_commerce` 别名。完整指标公式、分母和真实数据验证见 `OLIST_ADAPTER_REPORT.md`。
+`aggregate` 支持 0–2 个 group-by 和 1–4 个 metric，带 `having` 与固定成员 `top_k`。`compare_segments` 用于显式 segment 对比及 1–5 分评分构成。`distribution` 返回完整数据直方图或箱线汇总；`relationship` 返回确定性抽样点或完整二维分箱。值全部参数绑定；`between` 两端包含，`time_range` 使用 `[start, end)`。公开 Tool Schema 中不保留旧 `compare_commerce` 别名。完整指标公式、分母和真实数据验证见 `OLIST_ADAPTER_REPORT.md`。
+
+图表工具接受旧式 `chart_type/x/y`，也接受有类型的 `visual`（bar、line、scatter、heatmap、histogram、boxplot）。`update_chart` 的 `analysis_patch` / `visual_patch` 只修改列出的参数或白名单路径；`fork_chart` 默认固定当前有效范围，也可显式选择 linked。`set_selection` 使用来源图版本、实际标记谓词、目标图列表和 `highlight`/`filter`/`clear` 效果。无需语音服务的本地验收入口是 `python scripts/check_visual_analysis.py`，默认读取已有 `datasets/olist/data`。
 
 ## Visual Analytics Runtime
 

@@ -46,6 +46,8 @@ test('box plot uses summary fields; histogram uses explicit bin endpoints', () =
     {bin_start:{type:'quantitative'},bin_end:{type:'quantitative'},count:{type:'quantitative'},proportion:{type:'quantitative'}},'histogram',{field:'weight'}));
   assert.equal(hist.encoding.x.field, 'bin_start');
   assert.equal(hist.encoding.x2.field, 'bin_end');
+  assert.equal(hist.mark.orient, 'vertical');
+  assert.equal(hist.encoding.x.bin, 'binned');
 });
 
 test('grouped bar stays side by side and share is not normalized twice', () => {
@@ -94,4 +96,40 @@ test('explicit selection highlight dims only nonmatching marks', () => {
   assert.deepEqual(spec.data.values.map(row => row.__selection_match),[true,false]);
   assert.equal(spec.encoding.opacity.value,0.22);
   assert.ok(compile({...spec,width:300,height:200}).spec.marks.length);
+});
+
+test('faceted highlight retains augmented rows and sample tooltip is visible', () => {
+  const target = {...view('bar',{x:'cohort',y:'score',facet:'period'},
+    [{cohort:'A',period:'P1',score:1},{cohort:'B',period:'P2',score:2}],
+    {...cols,period:{type:'nominal'}},'aggregate',
+    {row_valid_counts:[{score:3},{score:5}]}),
+    selection_highlights:{source:[{field:'x',op:'eq',value:'A'}]}};
+  const spec = createSpec(target);
+  assert.deepEqual(spec.data.values.map(row => row.__selection_match),[true,false]);
+  assert.deepEqual(spec.data.values.map(row => row.__valid_count),[3,5]);
+  assert.ok(spec.spec.encoding.tooltip.some(item => item.field === '__valid_count'));
+  assert.ok(compile({...spec,width:300,height:200}).spec.marks.length);
+});
+
+test('source sort and emitted row order survive without visual sort', () => {
+  const ranked = {...view('bar',{x:'cohort',y:'score'},[{cohort:'B',score:2},{cohort:'A',score:1}]),
+    source:{tool:'aggregate',arguments:{sort:{field:'score',direction:'desc'}}}};
+  assert.deepEqual(createSpec(ranked).encoding.x.sort,{field:'score',op:'mean',order:'descending'});
+  const returned = createSpec(view('bar',{x:'cohort',y:'score'},[{cohort:'B',score:2},{cohort:'A',score:1}]));
+  assert.deepEqual(returned.encoding.x.sort,{field:'__row_order',op:'min',order:'ascending'});
+});
+
+test('many heatmap categories receive readable scroll-height and semantic axis titles', () => {
+  const rows = Array.from({length:70},(_,index) => ({group:`Category ${index}`,score:index}));
+  const heat = view('heatmap',{x:'cohort',y:'group',color:'score'},rows,
+    {...cols,group:{type:'nominal',source_field:'product_category'}});
+  const spec = createSpec(heat);
+  assert.ok(spec.height >= 70 * 20);
+  assert.equal(spec.encoding.y.title,'Product category');
+  assert.equal(spec.encoding.y.axis.labelLimit,150);
+  const points = createSpec(view('scatter',{x:'x_value',y:'y_value'},[{x_value:2,y_value:3}],
+    {x_value:{type:'quantitative',source_field:'price',unit:'BRL'},
+     y_value:{type:'quantitative',source_field:'freight_value',unit:'BRL'}},'points'));
+  assert.equal(points.encoding.x.title,'Price (BRL)');
+  assert.equal(points.encoding.y.title,'Freight value (BRL)');
 });

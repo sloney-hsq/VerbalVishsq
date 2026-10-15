@@ -7,7 +7,9 @@ function encoding(view, field, channel='axis') {
   if (!metadata || !['nominal','ordinal','quantitative','temporal'].includes(metadata.type)) {
     throw new Error(`Missing or invalid column metadata: ${field}`);
   }
-  const result = {field,type:metadata.type,title:`${metadata.label || field}${metadata.unit ? ` (${metadata.unit})` : ''}`};
+  const source = metadata.source_field || field;
+  const readable = source.replaceAll('_',' ').replace(/^./,letter => letter.toUpperCase());
+  const result = {field,type:metadata.type,title:`${metadata.label || readable}${metadata.unit ? ` (${metadata.unit})` : ''}`};
   const unit = String(metadata.unit || '').toLowerCase();
   const format = unit === 'ratio' ? '.1%' : /\bbrl\b/.test(unit) || ['days','points','kg'].includes(unit) ? ',.2f'
     : ['count','orders','items','customers','observations','cm3'].includes(unit) ? ',.0f' : null;
@@ -28,14 +30,19 @@ function stableColor(view, field) {
 }
 
 function base(view) {
+  const measure = ['y','x'].map(channel => view.visual?.encoding?.[channel])
+    .find(field => view.columns?.[field]?.type === 'quantitative');
   return {$schema:'https://vega.github.io/schema/vega-lite/v6.json',width:'container',height:chartHeightForView(view),
-    autosize:{type:'fit',contains:'padding',resize:true},data:{values:(view.data || []).map(row => ({...row}))}};
+    autosize:{type:'fit',contains:'padding',resize:true},data:{values:(view.data || []).map((row,index) => ({...row,
+      __row_order:index,__valid_count:view.metadata?.row_valid_counts?.[index]?.[measure]}))}};
 }
 
 function tooltip(view, fields) {
   const distinct = [...new Set([...fields, ...(view.visual?.encoding?.tooltip || []),
     ...(view.columns?.segment_denominator ? ['segment_denominator'] : [])].filter(field => field in (view.columns || {})))];
-  return distinct.map(field => encoding(view,field,'tooltip'));
+  const result = distinct.map(field => encoding(view,field,'tooltip'));
+  if (view.metadata?.row_valid_counts) result.push({field:'__valid_count',type:'quantitative',title:'Valid observations',format:',.0f'});
+  return result;
 }
 
 export function buildChartSpec(view) {
@@ -76,14 +83,16 @@ export function buildChartSpec(view) {
   } else if (type === 'heatmap') {
     spec.mark = {type:'rect',tooltip:true};
     spec.encoding = {x:axis(x),y:axis(y),color:encoding(view,color,'legend'),tooltip:tool(x,y,color)};
+    if (view.columns?.[y]?.type !== 'quantitative') spec.encoding.y.axis = {...spec.encoding.y.axis,labelLimit:150};
     if (view.result_kind === 'binned_2d') {
       spec.encoding.x2 = {field:'x_bin_end'};
       spec.encoding.y2 = {field:'y_bin_end'};
     }
   } else if (type === 'histogram') {
     if (view.result_kind !== 'histogram') throw new Error('Histogram needs histogram result');
-    spec.mark = {type:'bar',tooltip:true};
+    spec.mark = {type:'bar',tooltip:true,orient:'vertical'};
     spec.encoding = {x:axis('bin_start'),x2:{field:'bin_end'},y:axis(y),tooltip:tool('bin_start','bin_end',y)};
+    spec.encoding.x.bin = 'binned';
     spec.encoding.x.title = view.metadata?.field || spec.encoding.x.title;
   } else if (type === 'boxplot') {
     if (view.result_kind !== 'box_summary') throw new Error('Box plot needs box summary result');
@@ -105,18 +114,22 @@ export function buildChartSpec(view) {
     spec.encoding.color = encoding(view,color,'legend');
     if (view.columns[color].type !== 'quantitative') spec.encoding.color.scale = stableColor(view,color);
   }
-  if (visual.sort && spec.encoding) {
-    const direction = visual.sort.direction === 'asc' ? 'ascending' : 'descending';
+  const sort = visual.sort || view.source?.arguments?.sort;
+  if (sort && spec.encoding) {
+    const direction = sort.direction === 'asc' ? 'ascending' : 'descending';
     if (type === 'bar') {
       const category = view.columns?.[x]?.type === 'quantitative' ? 'y' : 'x';
-      spec.encoding[category].sort = visual.sort.field === spec.encoding[category].field ? direction
-        : {field:visual.sort.field,op:'mean',order:direction};
+      spec.encoding[category].sort = sort.field === spec.encoding[category].field ? direction
+        : {field:sort.field,op:'mean',order:direction};
     } else if (type === 'boxplot') {
-      spec.layer.forEach(layer => {if (layer.encoding.x) layer.encoding.x.sort = {field:visual.sort.field,op:'mean',order:direction};});
+      spec.layer.forEach(layer => {if (layer.encoding.x) layer.encoding.x.sort = {field:sort.field,op:'mean',order:direction};});
     } else {
-      const channel = Object.keys(spec.encoding).find(key => spec.encoding[key]?.field === visual.sort.field);
+      const channel = Object.keys(spec.encoding).find(key => spec.encoding[key]?.field === sort.field);
       if (channel) spec.encoding[channel].sort = direction;
     }
+  } else if (type === 'bar') {
+    const category = view.columns?.[x]?.type === 'quantitative' ? 'y' : 'x';
+    spec.encoding[category].sort = {field:'__row_order',op:'min',order:'ascending'};
   }
   if (visual.scales && spec.encoding) {
     for (const channel of ['x','y']) if (visual.scales[channel] === 'log' && spec.encoding[channel]) {
@@ -132,12 +145,13 @@ export function buildChartSpec(view) {
     else spec.encoding.opacity = {condition:{test:'datum.__selection_match',value:1},value:0.22};
   }
   if (facet) {
+    const transformedData = spec.data;
     const facetSpec = {facet:encoding(view,facet),spec:{...spec}};
     delete facetSpec.spec.$schema;
     delete facetSpec.spec.data;
     delete facetSpec.spec.width;
     delete facetSpec.spec.height;
-    spec = {...base(view),facet:facetSpec.facet,spec:facetSpec.spec};
+    spec = {...base(view),data:transformedData,facet:facetSpec.facet,spec:facetSpec.spec};
     if (visual.scales?.resolve === 'independent') spec.resolve = {scale:{y:'independent'}};
   }
   spec.usermeta = {columns:view.columns,observation_unit:view.metadata?.observation_unit,
