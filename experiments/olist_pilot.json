@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "study_id": "verbalvis-olist-pilot",
+  "dataset_id": "olist",
+  "manifest_version": "1.0",
+  "tasks": [
+    {
+      "task_id": "delivery-investigation",
+      "title": "Delivery-risk investigation",
+      "prompt": "你正在评估 Olist 市场的履约风险。请找出一个订单量足够、且配送问题值得进一步调查的州；再判断问题更可能与配送时长、商品品类还是 seller 构成有关，并用图表支持最终结论。"
+    },
+    {
+      "task_id": "freight-investigation",
+      "title": "Freight-burden investigation",
+      "prompt": "你正在评估 Olist 市场的运费负担。请找出一个运费负担异常的商品品类；再判断商品重量或体积、订单价值、seller 构成或地域是否能解释这一现象，并用图表支持最终结论。"
+    }
+  ],
+  "sequences": [
+    {
+      "sequence_id": "S1",
+      "trials": [
+        {"task_id": "delivery-investigation", "condition": "turn_taking"},
+        {"task_id": "freight-investigation", "condition": "revision_enabled"}
+      ]
+    },
+    {
+      "sequence_id": "S2",
+      "trials": [
+        {"task_id": "delivery-investigation", "condition": "revision_enabled"},
+        {"task_id": "freight-investigation", "condition": "turn_taking"}
+      ]
+    },
+    {
+      "sequence_id": "S3",
+      "trials": [
+        {"task_id": "freight-investigation", "condition": "turn_taking"},
+        {"task_id": "delivery-investigation", "condition": "revision_enabled"}
+      ]
+    },
+    {
+      "sequence_id": "S4",
+      "trials": [
+        {"task_id": "freight-investigation", "condition": "revision_enabled"},
+        {"task_id": "delivery-investigation", "condition": "turn_taking"}
+      ]
+    }
+  ]
+}

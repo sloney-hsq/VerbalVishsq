@@ -1,0 +1,79 @@
+{
+  "interface": "datasets/olist/interface.py",
+  "dataset": {"data_dir": "datasets/olist/data"},
+  "trace_dir": "traces",
+  "trace_consent": false,
+  "initial_dashboard": [
+    {
+      "source": {
+        "tool": "aggregate",
+        "arguments": {
+          "group_by": ["order_month"],
+          "metrics": ["order_count"],
+          "sort": {"field": "order_month", "direction": "asc"}
+        }
+      },
+      "chart_type": "line",
+      "x": "order_month",
+      "y": "order_count",
+      "title": "Monthly Orders Trend"
+    },
+    {
+      "source": {
+        "tool": "aggregate",
+        "arguments": {
+          "group_by": ["customer_state"],
+          "metrics": ["avg_review_score"],
+          "sort": {"field": "avg_review_score", "direction": "desc"}
+        }
+      },
+      "chart_type": "bar",
+      "x": "customer_state",
+      "y": "avg_review_score",
+      "title": "Average Review Score by State"
+    },
+    {
+      "source": {
+        "tool": "aggregate",
+        "arguments": {
+          "group_by": ["customer_state"],
+          "metrics": ["order_count"],
+          "sort": {"field": "order_count", "direction": "desc"}
+        }
+      },
+      "chart_type": "bar",
+      "x": "customer_state",
+      "y": "order_count",
+      "title": "Orders by State"
+    },
+    {
+      "source": {
+        "tool": "aggregate",
+        "arguments": {
+          "group_by": ["product_category"],
+          "metrics": ["revenue"],
+          "sort": {"field": "revenue", "direction": "desc"},
+          "limit": 15
+        }
+      },
+      "chart_type": "bar",
+      "x": "product_category",
+      "y": "revenue",
+      "title": "Category Revenue (Top 15)"
+    },
+    {
+      "source": {
+        "tool": "aggregate",
+        "arguments": {
+          "group_by": ["order_month"],
+          "metrics": ["avg_delivery_days"],
+          "sort": {"field": "order_month", "direction": "asc"}
+        }
+      },
+      "chart_type": "line",
+      "x": "order_month",
+      "y": "avg_delivery_days",
+      "title": "Monthly Average Delivery Days"
+    }
+  ]
+}

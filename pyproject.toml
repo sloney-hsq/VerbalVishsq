@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "verbalvis-research"
+version = "0.1.0"
+description = "Dataset-adapted conversational visual analytics with revocable response authority"
+requires-python = ">=3.11,<3.12"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools]
+packages = ["refactor_next", "refactor_next.backend"]
+package-dir = {refactor_next = "."}
+
+[tool.setuptools.package-data]
+refactor_next = ["configs/*.json", "datasets/*/*.py", "datasets/*/*.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

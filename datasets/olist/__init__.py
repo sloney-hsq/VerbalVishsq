@@ -1,0 +1,1 @@
+"""Olist exploratory dataset adapter."""

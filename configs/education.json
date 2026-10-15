@@ -1,0 +1,6 @@
+{
+  "interface": "datasets/education/interface.py",
+  "dataset": {"data_path": "datasets/education/data.csv"},
+  "trace_dir": "traces",
+  "trace_consent": false
+}

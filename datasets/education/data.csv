@@ -1,0 +1,7 @@
+student_id,cohort,subject,assessment_date,score,attendance_pct,data_origin
+s1,A,Math,2025-01-15,70,90,synthetic_demo
+s2,A,Math,2025-01-15,80,95,synthetic_demo
+s3,B,Math,2025-02-15,,80,synthetic_demo
+s1,A,Science,2025-01-16,90,90,synthetic_demo
+s2,A,Science,2025-01-16,80,95,synthetic_demo
+s3,B,Science,2025-02-16,,80,synthetic_demo
