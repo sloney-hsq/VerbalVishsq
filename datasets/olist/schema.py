@@ -83,3 +83,24 @@ DIMENSION_INDEX = {
 GROUPABLE_DIMENSIONS = {
     field: entry for field, entry in DIMENSION_INDEX.items() if entry["groupable"]
 }
+
+# The analytical variable namespace is separate from aggregate metrics.
+OBSERVATION_FIELDS = {
+    "order": {"delivery_days": "days", "approval_days": "days", "dispatch_days": "days",
+              "transit_days": "days", "review_score": "points", "is_late": "flag"},
+    "item": {"price": "BRL", "freight_value": "BRL", "product_weight_kg": "kg",
+             "product_volume_cm3": "cm3", "freight_ratio": "ratio"},
+}
+FIELD_INDEX = {
+    field: {**entry, "unit": None, "filterable": entry["groupable"],
+            "allowed_ops": ["eq", "neq", "gt", "gte", "lt", "lte", "in", "between", "is_null", "is_not_null"],
+            "observation_units": ["order", "item"] if entry["grain"] == "order" else ["item"]}
+    for field, entry in DIMENSION_INDEX.items()
+}
+for _unit, _fields in OBSERVATION_FIELDS.items():
+    for _field, _measure_unit in _fields.items():
+        FIELD_INDEX[_field] = {"field": _field, "label": _field.replace("_", " ").title(),
+                                "type": "quantitative", "grain": _unit, "unit": _measure_unit,
+                                "groupable": False, "filterable": True, "column": _field,
+                                "allowed_ops": ["eq", "neq", "gt", "gte", "lt", "lte", "in", "between", "is_null", "is_not_null"],
+                                "observation_units": [_unit]}

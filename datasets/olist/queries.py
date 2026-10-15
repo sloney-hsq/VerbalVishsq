@@ -134,6 +134,9 @@ def _group_order_select(source, group_fields, dimension_index):
 
 METRIC_SQL = {
     "order_count": "COUNT(*)::BIGINT",
+    "reviewed_order_count": "COUNT(CASE WHEN review_score BETWEEN 1 AND 5 THEN 1 END)::BIGINT",
+    "valid_delivery_order_count": "COUNT(delivery_days)::BIGINT",
+    "late_eligible_order_count": "COUNT(is_late)::BIGINT",
     "item_count": "COALESCE(SUM(item_count), 0)::BIGINT",
     "unique_customer_count": "COUNT(DISTINCT customer_unique_id)::BIGINT",
     "revenue": "COALESCE(SUM(revenue), 0)::DOUBLE",

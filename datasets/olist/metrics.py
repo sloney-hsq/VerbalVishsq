@@ -20,6 +20,9 @@ METRIC_INDEX = {
     entry["field"]: entry
     for entry in [
         _metric("order_count", "Orders", "volume", "Count of distinct orders in the selected segment.", "distinct eligible orders", "No order contributes zero.", "orders", "order"),
+        _metric("reviewed_order_count", "Reviewed orders", "volume", "Count of orders with a valid canonical score.", "orders with valid score", "Missing or invalid scores excluded.", "orders", "order"),
+        _metric("valid_delivery_order_count", "Valid delivery orders", "volume", "Count of delivered orders with valid non-negative delivery duration.", "orders with valid duration", "Missing or negative durations excluded.", "orders", "order"),
+        _metric("late_eligible_order_count", "Late eligible orders", "volume", "Count of orders with determinable lateness.", "orders with valid lateness", "Missing endpoints excluded.", "orders", "order"),
         _metric("item_count", "Items", "volume", "Count of order-item rows.", "eligible item rows", "No item contributes zero.", "items", "item"),
         _metric("unique_customer_count", "Unique customers", "volume", "Count of distinct non-null customer_unique_id values.", "distinct customer_unique_id", "Missing customer IDs are excluded.", "customers", "order"),
         _metric("revenue", "Revenue", "value", "Sum of item price; freight is excluded.", "eligible item rows", "NULL prices are excluded from the sum.", "BRL", "item"),

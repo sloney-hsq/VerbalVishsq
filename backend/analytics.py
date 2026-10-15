@@ -98,6 +98,15 @@ class DatasetAdapter:
                     for metadata in columns.values():
                         if not isinstance(metadata, dict) or metadata.get('type') not in {'nominal', 'ordinal', 'quantitative', 'temporal'}:
                             raise ValueError('Invalid column metadata')
+                    kind = result.get('result_kind')
+                    required = {'aggregate': set(), 'segments': {'segment'},
+                                'histogram': {'bin_start', 'bin_end', 'count', 'proportion'},
+                                'box_summary': {'q1', 'median', 'q3', 'whisker_low', 'whisker_high', 'valid_count', 'missing_count', 'outlier_count'},
+                                'points': {'observation_id', 'x_value', 'y_value'},
+                                'binned_2d': {'x_bin_start', 'x_bin_end', 'y_bin_start', 'y_bin_end', 'count'}}
+                    if kind is not None:
+                        if kind not in required or not isinstance(result.get('metadata'), dict) or not required[kind] <= columns.keys():
+                            raise ValueError('Invalid typed result contract')
                     for row in rows:
                         if not isinstance(row, dict) or set(row) != set(columns):
                             raise ValueError('Row and column schema mismatch')

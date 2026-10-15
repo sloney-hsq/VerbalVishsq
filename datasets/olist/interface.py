@@ -56,7 +56,9 @@ class Olist:
         try:
             self.schema = self._load("schema")
             self.metrics = self._load("metrics")
+            self.common = self._load("query_common")
             self.queries = self._load("queries")
+            self.queries.COMMON = self.common
             if not config.get("data_dir"):
                 raise ValueError("Olist requires configured data_dir")
             directory = Path(config["data_dir"]).resolve(strict=True)
@@ -311,6 +313,7 @@ class Olist:
             "default_scope": {"order_status": "delivered"},
             "dimensions": deepcopy(self.schema.DIMENSIONS),
             "dimension_index": deepcopy(self.schema.DIMENSION_INDEX),
+            "field_index": deepcopy(self.schema.FIELD_INDEX),
             "metrics": deepcopy(self.metrics.METRICS),
             "metric_index": deepcopy(self.metrics.METRIC_INDEX),
             "resources": [{"name": name, "grain": {
@@ -322,16 +325,16 @@ class Olist:
                               for name, count in self._raw_row_counts.items()],
             "grains": {"order": "order_grain", "item": "item_grain", "customer": "customer_grain",
                        "seller_order": "seller_order_grain", "payment": "payment_grain"},
-            "filters": {"fields": list(self.schema.GROUPABLE_DIMENSIONS),
-                        "operators": ["eq", "neq", "gte", "lte", "gt", "lt", "in", "between", "is_null"],
+            "filters": {"fields": [name for name, field in self.schema.FIELD_INDEX.items() if field["filterable"]],
+                        "operators": ["eq", "neq", "gte", "lte", "gt", "lt", "in", "between", "is_null", "is_not_null"],
                         "combination": "AND; values are parameter-bound; shared scope precedes tool filters."},
             "validation": deepcopy(self._validation),
         }
 
     def _filter_schema(self):
         return {"type": "object", "properties": {
-            "field": {"type": "string", "enum": list(self.schema.GROUPABLE_DIMENSIONS)},
-            "op": {"type": "string", "enum": ["eq", "neq", "gte", "lte", "gt", "lt", "in", "between", "is_null"]}, "value": {},
+            "field": {"type": "string", "enum": [name for name, field in self.schema.FIELD_INDEX.items() if field["filterable"]]},
+            "op": {"type": "string", "enum": list(self.common.OPS)}, "value": {},
         }, "required": ["field", "op"], "additionalProperties": False}
 
     def _common_properties(self):
@@ -388,6 +391,8 @@ class Olist:
             raise ValueError("Olist dataset is closed")
         if scope is not None and not isinstance(scope, list):
             raise ValueError("Scope must be a list of filters")
+        self.common.normalize_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
+        self.common.validate_time_range(arguments.get("time_range"), self.schema.FIELD_INDEX)
         if name == "aggregate":
             query = self.queries.build_aggregate(arguments, scope, self.schema.DIMENSION_INDEX, self.metrics.METRIC_INDEX)
         elif name == "compare_segments":
@@ -398,7 +403,11 @@ class Olist:
         raw_rows = self.con.execute(sql, params).fetchall()
         return {"success": True, "dataset_version": self.version,
                 "rows": [{field: value for field, value in zip(names, row)} for row in raw_rows[:limit]],
-                "columns": self._columns(names), "truncated": len(raw_rows) > limit}
+                "columns": self._columns(names), "truncated": len(raw_rows) > limit,
+                "result_kind": "aggregate" if name == "aggregate" else "segments",
+                "metadata": {"observation_unit": "order", "default_scope": self.describe()["default_scope"],
+                             "metric_denominators": {metric: self.metrics.METRIC_INDEX[metric]["denominator"]
+                                                     for metric in arguments["metrics"]}}}
 
     def close(self):
         if not self._closed:

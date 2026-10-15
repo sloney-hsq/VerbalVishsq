@@ -155,7 +155,7 @@ def test_standalone_loader_exposes_only_two_exploration_tools_and_cleans_modules
     added = {name for name in set(sys.modules) - before if name.startswith("trusted_dataset_")}
     try:
         assert [definition["name"] for definition in ds.definitions] == ["aggregate", "compare_segments"]
-        assert len(added) == 4  # interface plus its three file-loaded sibling modules
+        assert len(added) == 5  # interface plus its four file-loaded sibling modules
         assert ds.description["default_scope"] == {"order_status": "delivered"}
     finally:
         ds.close()
