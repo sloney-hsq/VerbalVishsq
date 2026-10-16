@@ -52,8 +52,8 @@
       </button>
     </header>
 
-    <section class="chart-grid" aria-label="Analytical dashboard">
-      <ChartSlot v-for="view in store.views" :key="view.id" :view="view" />
+    <section ref="chartGrid" class="chart-grid" aria-label="Analytical dashboard">
+      <ChartSlot v-for="view in store.views" :key="view.id" :view="view" :available-width="chartGridWidth" />
     </section>
 
     <section
@@ -182,6 +182,9 @@ const store = useDashboardStore();
 const audio = useAudio();
 const ws = useWebSocket(audio);
 const timelineList = ref(null);
+const chartGrid = ref(null);
+const chartGridWidth = ref(0);
+let chartGridObserver = null;
 const isStartingMic = ref(false);
 const timelineCollapsed = ref(false);
 const expandedActionGroupIds = ref(new Set());
@@ -225,10 +228,15 @@ watch(timelineVersion, () => {
 onMounted(() => {
   ws.connect();
   window.addEventListener("keydown", handleShortcut);
+  chartGridObserver = new ResizeObserver(entries => {
+    chartGridWidth.value = Math.round(entries[0]?.contentRect?.width || 0);
+  });
+  if (chartGrid.value) chartGridObserver.observe(chartGrid.value);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleShortcut);
+  chartGridObserver?.disconnect();
   audio.stopRecording();
   ws.disconnect();
 });
@@ -311,6 +319,7 @@ function filterLabel(filter) {
 }
 </script>
 
+<style src="../chartGrid.css"></style>
 <style scoped>
 .dashboard {
   display: flex;
@@ -474,21 +483,6 @@ function filterLabel(filter) {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
-}
-
-.chart-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
-  grid-auto-flow: row;
-  grid-auto-rows: auto;
-  flex: 1 1 auto;
-  min-height: 0;
-  gap: 12px;
-  overflow: auto;
-  align-content: start;
-  align-items: start;
-  justify-content: stretch;
-  padding: 1px 2px 6px;
 }
 
 .timeline {

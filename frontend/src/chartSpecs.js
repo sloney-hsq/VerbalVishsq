@@ -11,7 +11,8 @@ function encoding(view, field, channel='axis') {
   const readable = source.replaceAll('_',' ').replace(/^./,letter => letter.toUpperCase());
   const result = {field,type:metadata.type,title:`${metadata.label || readable}${metadata.unit ? ` (${metadata.unit})` : ''}`};
   const unit = String(metadata.unit || '').toLowerCase();
-  const format = unit === 'ratio' ? '.1%' : /\bbrl\b/.test(unit) || ['days','points','kg'].includes(unit) ? ',.2f'
+  const format = unit === 'ratio' ? '.1%' : unit === 'percentage_points' ? '+.1f' : unit === 'correlation' ? '.2f'
+    : /\bbrl\b/.test(unit) || ['days','points','kg'].includes(unit) ? ',.2f'
     : ['count','orders','items','customers','observations','cm3'].includes(unit) ? ',.0f' : null;
   if (format && channel === 'axis') result.axis = {format};
   if (format && channel === 'tooltip') result.format = format;
@@ -29,12 +30,15 @@ function stableColor(view, field) {
   return {domain:values,range:values.map(value => PALETTE[hash(value)])};
 }
 
-function base(view) {
-  const measure = ['y','x'].map(channel => view.visual?.encoding?.[channel])
+function base(view, presentation = null) {
+  const measure = ['color','y','x'].map(channel => view.visual?.encoding?.[channel])
     .find(field => view.columns?.[field]?.type === 'quantitative');
-  return {$schema:'https://vega.github.io/schema/vega-lite/v6.json',width:'container',height:chartHeightForView(view),
-    autosize:{type:'fit',contains:'padding',resize:true},data:{values:(view.data || []).map((row,index) => ({...row,
-      __row_order:index,__valid_count:view.metadata?.row_valid_counts?.[index]?.[measure]}))}};
+  const rows = presentation?.data || view.data || [];
+  return {$schema:'https://vega.github.io/schema/vega-lite/v6.json',width:'container',height:presentation?.plotHeight || chartHeightForView(view),
+    autosize:{type:'fit',contains:'padding',resize:true},data:{values:rows.map((row,index) => {
+      const sourceIndex = Number.isInteger(row.__source_index) ? row.__source_index : index;
+      return {...row,__row_order:sourceIndex,__valid_count:view.metadata?.row_valid_counts?.[sourceIndex]?.[measure]};
+    })}};
 }
 
 function tooltip(view, fields) {
@@ -45,12 +49,12 @@ function tooltip(view, fields) {
   return result;
 }
 
-export function buildChartSpec(view) {
+export function buildChartSpec(view, presentation = null) {
   const visual = view.visual;
   if (!visual || !visual.encoding) throw new Error('Typed visual is required');
   const {type} = visual;
   const {x,y,color,size,facet} = visual.encoding;
-  let spec = base(view);
+  let spec = base(view,presentation);
   const selections = Object.values(view.selection_highlights || {}).flat();
   if (selections.length) {
     spec.data.values = spec.data.values.map(row => ({...row,__selection_match:selections.every(item => {
@@ -83,7 +87,14 @@ export function buildChartSpec(view) {
   } else if (type === 'heatmap') {
     spec.mark = {type:'rect',tooltip:true};
     spec.encoding = {x:axis(x),y:axis(y),color:encoding(view,color,'legend'),tooltip:tool(x,y,color)};
-    if (view.columns?.[y]?.type !== 'quantitative') spec.encoding.y.axis = {...spec.encoding.y.axis,labelLimit:150};
+    if (view.columns?.[y]?.type !== 'quantitative') {
+      spec.encoding.y.axis = {...spec.encoding.y.axis,labelLimit:220,labelFontSize:11};
+      if (presentation?.visibleDomain) spec.encoding.y.sort = presentation.visibleDomain;
+    }
+    if (view.columns?.[color]?.type === 'quantitative') {
+      spec.encoding.color.legend = {...spec.encoding.color.legend,orient:'top',direction:'horizontal',gradientLength:240,titleOrient:'left'};
+      if (presentation?.colorDomain) spec.encoding.color.scale = {domain:presentation.colorDomain};
+    }
     if (view.result_kind === 'binned_2d') {
       spec.encoding.x2 = {field:'x_bin_end'};
       spec.encoding.y2 = {field:'y_bin_end'};
@@ -151,7 +162,10 @@ export function buildChartSpec(view) {
     delete facetSpec.spec.data;
     delete facetSpec.spec.width;
     delete facetSpec.spec.height;
-    spec = {...base(view),data:transformedData,facet:facetSpec.facet,spec:facetSpec.spec};
+    spec = {...base(view,presentation),data:transformedData,facet:facetSpec.facet,spec:facetSpec.spec};
+    spec.autosize = {type:'pad',contains:'padding',resize:true};
+    spec.spec.width = 260;
+    spec.spec.height = 220;
     if (visual.scales?.resolve === 'independent') spec.resolve = {scale:{y:'independent'}};
   }
   spec.usermeta = {columns:view.columns,observation_unit:view.metadata?.observation_unit,

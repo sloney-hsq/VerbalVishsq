@@ -3,6 +3,12 @@ import { chartHeightForView } from './chartLayout.js';
 import { buildChartSpec } from './chartSpecs.js';
 
 export function formatFilter(filter, description = {}) {
+  if (filter?.op === 'or' && Array.isArray(filter.branches)) {
+    return filter.branches.map(branch => {
+      const leaves = Array.isArray(branch?.all) ? branch.all : [];
+      return `(${leaves.map(leaf => formatFilter(leaf,description)).join(' and ')})`;
+    }).join(' or ');
+  }
   const metadata = filterMetadata(description, filter.field);
   const label = metadata?.label || filter.field;
   const op = filter.op;
@@ -12,19 +18,30 @@ export function formatFilter(filter, description = {}) {
     const [start, end] = Array.isArray(filter.value) ? filter.value : [filter.value, undefined];
     return `${label} between ${formatValue(start)} and ${formatValue(end)}`;
   }
+  if (op === 'quantile_between') {
+    const lower = Number.isFinite(filter.value?.lower) ? `${formatPercent(filter.value.lower)}–` : '≤';
+    const upper = Number.isFinite(filter.value?.upper) ? formatPercent(filter.value.upper) : 'maximum';
+    return `${label} quantile ${lower}${upper}`;
+  }
   const operators = {eq:'=', neq:'≠', gte:'≥', lte:'≤', gt:'>', lt:'<'};
   return `${label} ${operators[op] || op} ${formatValue(filter.value)}`;
 }
 
+function formatPercent(value) {
+  return `${Number((value * 100).toFixed(2))}%`;
+}
+
 /** Encodings follow the interface result, never a hard-coded domain field list. */
-export function createSpec(view, highlightElement = null) {
-  if (view.visual) {
-    const spec = buildChartSpec(view);
-    return ['bar','line','scatter'].includes(view.visual.type)
-      ? applyHighlightToSpec(spec, view, highlightElement) : spec;
+export function createSpec(view, highlightElement = null, presentation = null) {
+  const sourceView = toPlainData(view);
+  const sourceHighlight = toPlainData(highlightElement);
+  if (sourceView.visual) {
+    const spec = buildChartSpec(sourceView,presentation);
+    return ['bar','line','scatter'].includes(sourceView.visual.type)
+      ? applyHighlightToSpec(spec, sourceView, sourceHighlight) : spec;
   }
   const encoding = (field, channel = 'axis') => {
-    const metadata = view.columns?.[field];
+    const metadata = sourceView.columns?.[field];
     if (!metadata || !['nominal', 'ordinal', 'quantitative', 'temporal'].includes(metadata.type)) {
       throw new Error(`Missing or invalid column metadata: ${field}`);
     }
@@ -39,40 +56,47 @@ export function createSpec(view, highlightElement = null) {
     if (format && channel === 'legend') result.legend = {format};
     return result;
   };
-  if (!['bar', 'line', 'scatter'].includes(view.chart_type)) throw new Error('Unsupported chart type');
-  const x = encoding(view.x_field), y = encoding(view.y_field);
-  const tooltip = [encoding(view.x_field, 'tooltip'), encoding(view.y_field, 'tooltip')];
+  if (!['bar', 'line', 'scatter'].includes(sourceView.chart_type)) throw new Error('Unsupported chart type');
+  const x = encoding(sourceView.x_field), y = encoding(sourceView.y_field);
+  const tooltip = [encoding(sourceView.x_field, 'tooltip'), encoding(sourceView.y_field, 'tooltip')];
   const spec = {
     $schema: 'https://vega.github.io/schema/vega-lite/v6.json',
     width: 'container', height: chartHeightForView(view),
     autosize: {type: 'fit', contains: 'padding', resize: true},
-    data: {values: (view.data || []).map(row => ({...row}))},
-    mark: view.chart_type === 'scatter' ? {type:'circle', tooltip:true, opacity:0.62}
-      : view.chart_type === 'line' ? {type:'line', point:true, tooltip:true}
+    data: {values: (sourceView.data || []).map(row => ({...row}))},
+    mark: sourceView.chart_type === 'scatter' ? {type:'circle', tooltip:true, opacity:0.62}
+      : sourceView.chart_type === 'line' ? {type:'line', point:true, tooltip:true}
         : {type:'bar', tooltip:true, cornerRadiusEnd:2},
     encoding: {x, y, tooltip},
   };
-  const describedFields = [...new Set([view.x_field, view.y_field, view.color].filter(Boolean))];
+  const describedFields = [...new Set([sourceView.x_field, sourceView.y_field, sourceView.color].filter(Boolean))];
   spec.usermeta = {
-    columns: Object.fromEntries(describedFields.map(field => [field, {...view.columns[field]}])),
+    columns: Object.fromEntries(describedFields.map(field => [field, {...sourceView.columns[field]}])),
   };
   const descriptions = describedFields
-    .map(field => view.columns[field]?.description)
+    .map(field => sourceView.columns[field]?.description)
     .filter(Boolean);
   if (descriptions.length) spec.description = descriptions.join(' ');
-  if (view.chart_type === 'line') x.sort = 'ascending';
-  if (view.chart_type === 'bar' && x.type === 'nominal') x.sort = '-y';
-  if (view.color) {
-    spec.encoding.color = encoding(view.color, 'legend');
-    tooltip.push(encoding(view.color, 'tooltip'));
-    if (view.chart_type === 'line') spec.encoding.detail = {field:view.color};
+  if (sourceView.chart_type === 'line') x.sort = 'ascending';
+  if (sourceView.chart_type === 'bar' && x.type === 'nominal') x.sort = '-y';
+  if (sourceView.color) {
+    spec.encoding.color = encoding(sourceView.color, 'legend');
+    tooltip.push(encoding(sourceView.color, 'tooltip'));
+    if (sourceView.chart_type === 'line') spec.encoding.detail = {field:sourceView.color};
   }
-  return applyHighlightToSpec(spec, view, highlightElement);
+  return applyHighlightToSpec(spec, sourceView, sourceHighlight);
+}
+
+function toPlainData(value) {
+  if (value === null || value === undefined) return value;
+  return JSON.parse(JSON.stringify(value));
 }
 
 function formatForUnit(unit) {
   const normalized = String(unit || '').trim().toLowerCase();
   if (normalized === 'ratio') return '.1%';
+  if (normalized === 'percentage_points') return '+.1f';
+  if (normalized === 'correlation') return '.2f';
   if (/\bbrl\b/.test(normalized)) return ',.2f';
   if (['days', 'points', 'kg'].includes(normalized)) return ',.2f';
   if (['orders', 'items', 'customers', 'count', 'cm3'].includes(normalized)) return ',.0f';

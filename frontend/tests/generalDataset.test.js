@@ -85,9 +85,20 @@ test('filter chips resolve labels from dimension registries and display every op
     [{field:'region',op:'between',value:[10,20]}, 'Region between 10 and 20'],
     [{field:'cohort',op:'eq',value:null}, 'Cohort = missing'],
     [{field:'cohort',op:'is_null'}, 'Cohort is missing'],
+    [{field:'region',op:'quantile_between',value:{lower:.05,upper:.95}}, 'Region quantile 5%–95%'],
   ];
 
   for (const [filter, expected] of cases) {
     assert.equal(formatFilter(filter, description), expected);
   }
+});
+
+test('structured OR filters render branches instead of object strings', () => {
+  const description = {dimension_index:{state:{label:'State'},category:{label:'Category'}}};
+  const label = formatFilter({op:'or',branches:[
+    {all:[{field:'state',op:'eq',value:'RJ'},{field:'category',op:'eq',value:'furniture'}]},
+    {all:[{field:'state',op:'eq',value:'SP'}]},
+  ]},description);
+  assert.equal(label,'(State = RJ and Category = furniture) or (State = SP)');
+  assert.doesNotMatch(label,/\[object Object\]/);
 });

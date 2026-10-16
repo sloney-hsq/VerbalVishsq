@@ -1,16 +1,48 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { chartLayoutForView, heatmapPresentation } from '../src/chartLayout.js';
 
-import { isMultiSeriesLine } from "../src/chartLayout.js";
+function heatmap(categoryCount = 72) {
+  const data = [];
+  for (let index = 0; index < categoryCount; index += 1) {
+    for (const state of ['RJ', 'SP']) data.push({state, category:`Category ${index}`, score:index / 100});
+  }
+  return {
+    id:'heat', chart_type:'heatmap', result_kind:'aggregate', data,
+    visual:{type:'heatmap',encoding:{x:'state',y:'category',color:'score'}},
+    columns:{state:{type:'nominal'},category:{type:'nominal'},score:{type:'quantitative',unit:'ratio'}},
+    selection_highlights:{source:[{field:'category',op:'eq',value:'Category 40'}]},
+  };
+}
 
-test("identifies a line chart with a series", () => {
-  assert.equal(isMultiSeriesLine({
-    chart_type: "line",
-    color: "product_category",
-  }), true);
+test('high-cardinality Y heatmaps page complete categories in source order', () => {
+  const view = heatmap();
+  const layout = chartLayoutForView(view, 920);
+  assert.equal(layout.columnSpan, 2);
+  assert.equal(layout.heatmap.pageCount, 4);
+  const first = heatmapPresentation(view,{pageIndex:0,mode:'paged'},920);
+  const last = heatmapPresentation(view,{pageIndex:3,mode:'paged'},920);
+  assert.deepEqual(first.visibleDomain, Array.from({length:20},(_,i) => `Category ${i}`));
+  assert.equal(first.data.length, 40);
+  assert.equal(last.visibleDomain.length, 12);
+  assert.equal(last.data.length, 24);
+  assert.deepEqual(first.colorDomain,[0,0.71]);
+  assert.equal(first.selectionOffPage,true);
+  assert.equal(last.selectionOffPage,true);
 });
 
-test("keeps single-series lines and other chart types at one column", () => {
-  assert.equal(isMultiSeriesLine({ chart_type: "line", color: null }), false);
-  assert.equal(isMultiSeriesLine({ chart_type: "bar", color: "review_score" }), false);
+test('24 categories do not page and binned heatmaps never page', () => {
+  assert.equal(chartLayoutForView(heatmap(24),920).heatmap.enabled,false);
+  const binned = {...heatmap(30),result_kind:'binned_2d',columns:{x:{type:'quantitative'},y:{type:'quantitative'},score:{type:'quantitative'}},visual:{type:'heatmap',encoding:{x:'x',y:'y',color:'score'}}};
+  assert.equal(chartLayoutForView(binned,920).heatmap.enabled,false);
+});
+
+test('all mode retains every row and narrow layouts use one dashboard column', () => {
+  const view = heatmap();
+  const all = heatmapPresentation(view,{pageIndex:2,mode:'all'},700);
+  assert.equal(all.data.length,144);
+  assert.equal(all.visibleDomain.length,72);
+  assert.equal(all.pageIndex,2);
+  assert.equal(chartLayoutForView(view,879).columnSpan,1);
+  assert.doesNotThrow(() => heatmapPresentation({...view,data:[]},{pageIndex:99,mode:'paged'},920));
 });

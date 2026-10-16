@@ -27,3 +27,20 @@ test('chart spec validation is inside the visible render error boundary', async 
   const source = await readFile(fileURLToPath(new URL('../src/components/ChartSlot.vue', import.meta.url)), 'utf8');
   assert.match(source, /try\s*\{\s*const spec = createSpec\([\s\S]*?catch\s*\(error\)/);
 });
+
+test('high-cardinality heatmaps expose accessible paging without mutating the view', async (t) => {
+  const vite = await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+  t.after(() => vite.close());
+  const {default:ChartSlot} = await vite.ssrLoadModule('/src/components/ChartSlot.vue');
+  const data = Array.from({length:30},(_,i) => ({state:'SP',category:`C${i}`,score:i}));
+  const view = {id:'heat',title:'Heat',chart_type:'heatmap',result_kind:'aggregate',data,
+    visual:{type:'heatmap',encoding:{x:'state',y:'category',color:'score'}},
+    columns:{state:{type:'nominal'},category:{type:'nominal'},score:{type:'quantitative'}}};
+  const app = createSSRApp({render:() => h(ChartSlot,{view,availableWidth:920})});
+  app.use(createPinia());
+  const html = await renderToString(app);
+  assert.match(html,/aria-label="Heatmap pages"/);
+  assert.match(html,/1–20 of 30 categories/);
+  assert.match(html,/View all/);
+  assert.equal(view.data.length,30);
+});

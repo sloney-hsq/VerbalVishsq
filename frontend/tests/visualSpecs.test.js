@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compile } from 'vega-lite';
 import * as vega from 'vega';
+import { reactive } from 'vue';
 import { createSpec } from '../src/specFactory.js';
+import { heatmapPresentation } from '../src/chartLayout.js';
 
 const cols = {
   cohort: {type:'nominal',label:'Cohort'}, period:{type:'temporal',label:'Period'},
@@ -119,17 +121,49 @@ test('source sort and emitted row order survive without visual sort', () => {
   assert.deepEqual(returned.encoding.x.sort,{field:'__row_order',op:'min',order:'ascending'});
 });
 
-test('many heatmap categories receive readable scroll-height and semantic axis titles', () => {
+test('paged heatmaps retain global scales, stable category order, and readable labels', () => {
   const rows = Array.from({length:70},(_,index) => ({group:`Category ${index}`,score:index}));
   const heat = view('heatmap',{x:'cohort',y:'group',color:'score'},rows,
     {...cols,group:{type:'nominal',source_field:'product_category'}});
-  const spec = createSpec(heat);
-  assert.ok(spec.height >= 70 * 20);
+  const presentation = heatmapPresentation(heat,{pageIndex:1,mode:'paged'},920);
+  const spec = createSpec(heat,null,presentation);
+  assert.equal(spec.height,512);
+  assert.equal(spec.data.values.length,20);
+  assert.deepEqual(spec.encoding.y.sort,presentation.visibleDomain);
+  assert.deepEqual(spec.encoding.color.scale.domain,[0,69]);
+  assert.equal(spec.encoding.color.legend.orient,'top');
   assert.equal(spec.encoding.y.title,'Product category');
-  assert.equal(spec.encoding.y.axis.labelLimit,150);
+  assert.equal(spec.encoding.y.axis.labelLimit,220);
   const points = createSpec(view('scatter',{x:'x_value',y:'y_value'},[{x_value:2,y_value:3}],
     {x_value:{type:'quantitative',source_field:'price',unit:'BRL'},
      y_value:{type:'quantitative',source_field:'freight_value',unit:'BRL'}},'points'));
   assert.equal(points.encoding.x.title,'Price (BRL)');
   assert.equal(points.encoding.y.title,'Freight value (BRL)');
+});
+
+test('percentage points and correlations have distinct numeric formats', () => {
+  const percentagePoints = createSpec(view('bar',{x:'cohort',y:'delta'},[{cohort:'A',delta:5}],
+    {cohort:{type:'nominal'},delta:{type:'quantitative',unit:'percentage_points'}}));
+  const correlation = createSpec(view('bar',{x:'cohort',y:'rho'},[{cohort:'A',rho:.4567}],
+    {cohort:{type:'nominal'},rho:{type:'quantitative',unit:'correlation'}},'relationship_summary'));
+  assert.equal(percentagePoints.encoding.y.axis.format,'+.1f');
+  assert.equal(correlation.encoding.y.axis.format,'.2f');
+});
+
+test('reactive column metadata is converted to a cloneable Vega spec', () => {
+  const reactiveView = reactive(view('bar',{x:'cohort',y:'score',color:'band'},
+    [{cohort:'A',score:1,band:'low'}],{...cols,band:{type:'ordinal',sort_order:['low','high'],color_range:['blue','red']}}));
+  const spec = createSpec(reactiveView);
+  assert.doesNotThrow(() => structuredClone(spec));
+  assert.ok(compile(spec).spec.marks.length);
+});
+
+test('paged heatmap validity metadata follows source rows and the color measure', () => {
+  const rows = Array.from({length:30},(_,index) => ({cohort:'A',group:`C${index}`,score:index}));
+  const heat = view('heatmap',{x:'cohort',y:'group',color:'score'},rows,
+    {...cols,group:{type:'nominal'}},'aggregate',{row_valid_counts:rows.map((_,index) => ({score:100 + index}))});
+  const presentation = heatmapPresentation(heat,{pageIndex:1,mode:'paged'},920);
+  const spec = createSpec(heat,null,presentation);
+  assert.deepEqual(spec.data.values.map(row => row.__valid_count),Array.from({length:10},(_,index) => 120 + index));
+  assert.ok(spec.encoding.tooltip.some(item => item.field === '__valid_count'));
 });
