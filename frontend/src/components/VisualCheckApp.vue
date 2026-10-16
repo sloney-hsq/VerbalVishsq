@@ -61,8 +61,8 @@ onBeforeUnmount(() => observer?.disconnect());
 </script>
 
 <style scoped>
-.check-shell { width:100%; max-width:1600px; margin:0 auto; min-height:100vh; padding:24px; }
-section { min-width:0; }
+.check-shell { width:100%; max-width:1920px; height:100dvh; min-height:0; margin:0 auto; padding:24px; }
+section { display:flex; flex-direction:column; min-width:0; height:100%; min-height:0; }
 .edge-cases { margin-top:16px; padding:12px; border:1px dashed #94a3b8; border-radius:12px; background:#eef2f7; }
 .edge-cases summary { cursor:pointer; font-weight:700; }
 @media(max-width:700px) { .check-shell { padding:12px; } }

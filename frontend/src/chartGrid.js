@@ -1,3 +1,7 @@
+export function chartColumnCount(width) {
+  return Number(width) >= 1440 ? 3 : Number(width) >= 880 ? 2 : 1;
+}
+
 // Pack natural-height cards without stretching shorter charts to their neighbours.
 export function packChartCards(cards, columns = 2, gap = 16) {
   const bottoms = Array(Math.max(1, columns)).fill(0);
@@ -36,7 +40,7 @@ export const vChartGrid = {
       for (const child of children) if (!observed.has(child)) {
         observer.observe(child); observed.add(child);
       }
-      const columns = element.clientWidth >= 880 ? 2 : 1;
+      const columns = chartColumnCount(element.clientWidth);
       element.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
       const cards = children.map(child => ({
         height: child.getBoundingClientRect().height,

@@ -1,3 +1,5 @@
+import {chartColumnCount} from './chartGrid.js';
+
 export const DEFAULT_CHART_HEIGHT = 300;
 export const HEATMAP_PAGE_SIZE = 20;
 export const HEATMAP_PAGE_THRESHOLD = 24;
@@ -36,16 +38,19 @@ export function chartLayoutForView(view, availableWidth = 0) {
   const categoryPaging = paging || tallBar;
   const seriesField = encoding.color || view?.color;
   const seriesCount = seriesField ? orderedDomain(view,seriesField).length : 0;
-  const dense = paging || isFacet || isMultiSeriesLine(view) && seriesCount > 3;
-  const twoColumns = Number(availableWidth) >= 880;
+  const dense = paging || isFacet || isMultiSeriesLine(view) && seriesCount > 6;
+  const columns = chartColumnCount(availableWidth);
+  const twoColumns = columns > 1;
+  const cardWidth = (Number(availableWidth) - (columns - 1) * 16) / columns;
   const visibleRows = paging ? HEATMAP_PAGE_SIZE : Math.max(1,yDomain.length);
   return {
-    columnSpan: dense && twoColumns ? 2 : 1,
+    columnSpan: dense && twoColumns ? isCategoryHeatmap ? columns : 2 : 1,
     tier: paging ? 'matrix' : tallBar ? 'tall' : dense ? 'standard' : 'compact',
     cardHeight: paging || tallBar ? 600 : dense ? 420 : 360,
     plotHeight: isCategoryHeatmap ? 72 + visibleRows * 22 : tallBar ? 62 + horizontalBarRows * 18 : DEFAULT_CHART_HEIGHT,
     plotMinWidth: isCategoryHeatmap ? Math.max(420, orderedDomain(view,xField).length * 44 + 260) : 0,
     facetColumns:isFacet && twoColumns ? 2 : 1,
+    legendColumns:cardWidth >= 560 ? 3 : cardWidth >= 400 ? 2 : 1,
     scrollY:tallBar,
     category:{enabled:categoryPaging,pageSize:categoryPageSize,
       pageCount:categoryPaging ? Math.ceil(categoryDomain.length / categoryPageSize) : 1,

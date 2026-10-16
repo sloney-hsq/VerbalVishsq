@@ -44,11 +44,11 @@ function base(view, presentation = null) {
       font:'Segoe UI, Microsoft YaHei, sans-serif',
       view:{stroke:null},
       axis:{domain:false,ticks:false,labelColor:'#64748b',titleColor:'#475569',
-        labelFontSize:11,titleFontSize:11,titleFontWeight:400,labelPadding:8,titlePadding:12,
+        labelFontSize:12,titleFontSize:12,titleFontWeight:400,labelPadding:8,titlePadding:12,
         gridColor:'#edf1f5',tickCount:5},
       axisDiscrete:{grid:false,labelAngle:0,labelLimit:180},
-      legend:{orient:'top',direction:'horizontal',titleFontSize:11,titleColor:'#64748b',
-        labelFontSize:11,labelColor:'#475569',labelLimit:160,symbolSize:70,padding:0,offset:12},
+      legend:{orient:'top',direction:'horizontal',columns:presentation?.legendColumns || 2,titleFontSize:12,titleColor:'#64748b',
+        labelFontSize:12,labelColor:'#475569',labelLimit:160,symbolSize:70,padding:0,offset:12},
       bar:{color:'#447b9f',binSpacing:2},
       line:{strokeWidth:2},
       point:{size:36,filled:true},
@@ -112,7 +112,7 @@ export function buildChartSpec(view, presentation = null) {
     spec.mark = {type:'rect',tooltip:true};
     spec.encoding = {x:axis(x),y:axis(y),color:encoding(view,color,'legend'),tooltip:tool(x,y,color)};
     if (view.columns?.[y]?.type !== 'quantitative') {
-      spec.encoding.y.axis = {...spec.encoding.y.axis,labelLimit:220,labelFontSize:11};
+      spec.encoding.y.axis = {...spec.encoding.y.axis,labelLimit:220,labelFontSize:12};
       if (presentation?.visibleDomain) spec.encoding.y.sort = presentation.visibleDomain;
     }
     if (view.columns?.[color]?.type === 'quantitative') {

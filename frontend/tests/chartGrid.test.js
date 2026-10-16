@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {packChartCards} from '../src/chartGrid.js';
+import {chartColumnCount,packChartCards} from '../src/chartGrid.js';
+
+test('desktop grid uses the available 16:9 workspace instead of a fixed two-column limit', () => {
+  assert.equal(chartColumnCount(1920 - 48),3);
+  assert.equal(chartColumnCount(1366 - 48),2);
+  assert.equal(chartColumnCount(879),1);
+});
 
 test('natural-height cards fill the shorter column without stretching', () => {
   const positions = packChartCards([{height:600},{height:340},{height:300},{height:560}]);
