@@ -12,7 +12,7 @@
 
 | 接口 | 数据 | 接口工具 | 典型口径 |
 |---|---|---|---|
-| Olist | 9 张实际 CSV，只读加载 | `aggregate` / `compare_segments` / `distribution` / `relationship` | 销售、评分、配送、商品物流与 seller 指标 |
+| Olist | 9 张实际 CSV，只读加载 | `aggregate` / `compare_segments` / `distribution` / `relationship` / `compare_periods` | 销售、评分、配送、商品物流与 seller 指标 |
 | Education | 明确标注的合成教学数据 | `summarize_learning` | assessment 数、学生数、成绩均值、出勤率 |
 
 两者使用不同字段、工具名和参数；没有在 `realtime.py` 或图表渲染器里增加“如果是教育/电商”的分支。Olist 保留 order、item、payment、customer 和 seller×order 粒度，查询默认只统计 delivered 订单；revenue 为 item price，不包括 freight。同一订单的多条 review 按 creation timestamp、review ID 降序选取唯一 canonical record。合成教育数据不代表真实用户研究。
@@ -138,7 +138,7 @@ Olist 的核心查询不按问题名称拆成多个工具，而由一个语义�
 }
 ```
 
-`aggregate` 支持 0–2 个 group-by 和 1–4 个 metric，带 `having` 与固定成员 `top_k`。`compare_segments` 用于显式 segment 对比及 1–5 分评分构成。`distribution` 返回完整数据直方图或箱线汇总；`relationship` 返回确定性抽样点或完整二维分箱。值全部参数绑定；`between` 两端包含，`time_range` 使用 `[start, end)`。公开 Tool Schema 中不保留旧 `compare_commerce` 别名。完整指标公式、分母和真实数据验证见 `OLIST_ADAPTER_REPORT.md`。
+`aggregate` 支持 0–2 个 group-by，固定 `metrics` 与动态 `measures` 合计 1–4 项，带 `having` 与固定成员 `top_k`。动态统计包括均值、中位数、连续分位数、阈值比例和已注册比值，须明确 order/item 粒度。`compare_segments` 支持参考组差值、相对差值、比例指标百分点差及批准的分类构成；`distribution` 返回完整数据直方图、箱线汇总或分位数；`relationship` 支持确定性抽样点、完整二维分箱及全数据 Pearson/Spearman 摘要。`compare_periods` 比较两个显式非重叠时期，支持汇总和对齐的日/周/月序列。值全部参数绑定；`between` 两端包含，`time_range` 使用 `[start, end)`。公开 Tool Schema 中不保留旧 `compare_commerce` 别名。原有指标公式见 `OLIST_ADAPTER_REPORT.md`；新增契约与限制见 [实验工具设计](docs/superpowers/specs/2026-10-16-study-tools-and-chart-layout-design.md)。
 
 图表工具接受旧式 `chart_type/x/y`，也接受有类型的 `visual`（bar、line、scatter、heatmap、histogram、boxplot）。`update_chart` 的 `analysis_patch` / `visual_patch` 只修改列出的参数或白名单路径；`fork_chart` 默认固定当前有效范围，也可显式选择 linked。`set_selection` 使用来源图版本、实际标记谓词、目标图列表和 `highlight`/`filter`/`clear` 效果。无需语音服务的本地验收入口是 `python scripts/check_visual_analysis.py`，默认读取已有 `datasets/olist/data`。
 
@@ -198,6 +198,26 @@ python scripts/analyze_traces.py path/to/trace.jsonl --strict
 协议保证本地接收/提交/发送许可边界；不能撤回已经发到远端的消息或已经被用户听到的音频，也不宣称可以事务性删除 Provider 内部历史。新响应会收到最新已提交 dashboard。更强的远端历史隔离需要供应商支持，或重建会话并回放受控历史。
 
 ## 验证与实验
+
+### 六任务工具池与图表验收
+
+新增任务池在 `experiments/olist_study_task_pool.json`，不替换下面的旧 pilot 排程。五个分析入口为 `aggregate`、`compare_segments`、`distribution`、`relationship`、`compare_periods`。接口与统计边界见 [实验工具设计](docs/superpowers/specs/2026-10-16-study-tools-and-chart-layout-design.md)；正式用户实验仍须完成真实语音预飞。
+
+无模型密钥的确定性回放（不是模型或用户实验结果）：
+
+```powershell
+python scripts/check_study_tools.py --data-dir datasets/olist/data --export .superpowers/study-views.json
+```
+
+前端本地图表验收页使用生产 `ChartSlot`，不连接语音服务、不申请麦克风。先导出图表，再启动开发服务：
+
+```powershell
+cd frontend
+$env:VERBALVIS_VISUAL_CHECK_MANIFEST = (Resolve-Path ../.superpowers/study-views.json).Path
+npm run dev -- --host 127.0.0.1 --port 5175 --strictPort
+```
+
+打开 `http://127.0.0.1:5175/visual-check.html`。类别热力图超过 24 类时按 20 类分页，所有页共用色标；全图和长横条图在卡片内滚动。底部的 synthetic edge cases 仅用于长标题、缺失值和分面布局验收，不是 Olist 研究数据。
 
 真实 pilot 不再依赖手写 URL：[Olist Pilot 运行手册](PILOT_RUNBOOK.md) 定义了预飞、四个交叉平衡序列、标准 trial 流程、失败/重试边界、每日 Trace 质检与 pilot 结束门槛；[正式实验冻结清单](STUDY_FREEZE_CHECKLIST.md) 明确了从 pilot 到正式 study wave 前必须固定的研究、软件、隐私和变更控制事项。任务与分配来自 `experiments/olist_pilot.json`，参与者排程使用：
 
