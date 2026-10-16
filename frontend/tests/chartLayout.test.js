@@ -64,4 +64,17 @@ test('long horizontal bars preserve readable rows inside a tall scroll tier', ()
   assert.equal(layout.scrollY,true);
   assert.equal(layout.plotHeight,1052);
   assert.equal(layout.cardHeight,600);
+  const first = heatmapPresentation(view,{pageIndex:0},920);
+  const last = heatmapPresentation(view,{pageIndex:3},920);
+  assert.equal(first.data.length,14);
+  assert.equal(first.plotHeight,328);
+  assert.equal(first.scrollY,false);
+  assert.deepEqual(first.valueDomain,[0,54]);
+  assert.deepEqual(last.valueDomain,first.valueDomain);
+  assert.equal(last.data.length,13);
+  assert.equal(last.data[0].category,'Category 42');
+  const full = heatmapPresentation(view,{mode:'all'},920);
+  assert.equal(full.data.length,55);
+  assert.equal(full.scrollY,true);
+  assert.equal(view.data.length,55);
 });

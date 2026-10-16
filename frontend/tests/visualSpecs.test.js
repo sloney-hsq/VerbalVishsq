@@ -150,6 +150,15 @@ test('percentage points and correlations have distinct numeric formats', () => {
   assert.equal(correlation.encoding.y.axis.format,'.2f');
 });
 
+test('a revised quantile label reflects its definition rather than a stale column ID', () => {
+  const target = view('bar',{x:'delivery_p90',y:'cohort'},[{delivery_p90:12,cohort:'A'}],
+    {cohort:{type:'nominal'},delivery_p90:{type:'quantitative',source_field:'delivery_days',label:'delivery_p90',unit:'days',stat:'quantile'}},
+    'aggregate',{measure_definitions:{delivery_p90:{id:'delivery_p90',stat:'quantile',field:'delivery_days',q:.8}}});
+  const title = createSpec(target).encoding.x.title;
+  assert.match(title,/P80/);
+  assert.doesNotMatch(title,/p90/i);
+});
+
 test('reactive column metadata is converted to a cloneable Vega spec', () => {
   const reactiveView = reactive(view('bar',{x:'cohort',y:'score',color:'band'},
     [{cohort:'A',score:1,band:'low'}],{...cols,band:{type:'ordinal',sort_order:['low','high'],color_range:['blue','red']}}));

@@ -53,7 +53,7 @@ def test_schedule_urls_round_trip_only_valid_experiment_context():
 
     assert schedule["participant_id"] == "P-007"
     assert schedule["sequence_id"] == "S3"
-    assert schedule["manifest_version"] == "1.0"
+    assert schedule["manifest_version"] == "1.1"
     assert re.fullmatch(r"[0-9a-f]{64}", schedule["manifest_sha256"])
     assert len(schedule["trials"]) == 2
     for index, trial in enumerate(schedule["trials"], start=1):

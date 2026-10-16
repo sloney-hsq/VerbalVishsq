@@ -9,7 +9,11 @@ function encoding(view, field, channel='axis') {
   }
   const source = metadata.source_field || field;
   const readable = source.replaceAll('_',' ').replace(/^./,letter => letter.toUpperCase());
-  const result = {field,type:metadata.type,title:`${metadata.label || readable}${metadata.unit ? ` (${metadata.unit})` : ''}`};
+  const definition = view.metadata?.measure_definitions?.[field];
+  const statistic = definition?.stat === 'quantile' ? `P${Number((definition.q * 100).toFixed(2))}`
+    : {mean:'Mean',median:'Median',threshold_ratio:'Share',registered_ratio:'Share'}[definition?.stat];
+  const label = metadata.label && metadata.label !== field ? metadata.label : readable;
+  const result = {field,type:metadata.type,title:`${label}${statistic ? ` · ${statistic}` : ''}${metadata.unit ? ` (${metadata.unit})` : ''}`};
   const unit = String(metadata.unit || '').toLowerCase();
   const format = unit === 'ratio' ? '.1%' : unit === 'percentage_points' ? '+.1f' : unit === 'correlation' ? '.2f'
     : /\bbrl\b/.test(unit) || ['days','points','kg'].includes(unit) ? ',.2f'
@@ -35,6 +39,20 @@ function base(view, presentation = null) {
     .find(field => view.columns?.[field]?.type === 'quantitative');
   const rows = presentation?.data || view.data || [];
   return {$schema:'https://vega.github.io/schema/vega-lite/v6.json',width:'container',height:presentation?.plotHeight || chartHeightForView(view),
+    padding: {left:4,right:8,top:6,bottom:4},
+    config: {
+      font:'Segoe UI, Microsoft YaHei, sans-serif',
+      view:{stroke:null},
+      axis:{domain:false,ticks:false,labelColor:'#64748b',titleColor:'#475569',
+        labelFontSize:11,titleFontSize:11,titleFontWeight:400,labelPadding:8,titlePadding:12,
+        gridColor:'#edf1f5',tickCount:5},
+      axisDiscrete:{grid:false,labelAngle:0,labelLimit:180},
+      legend:{orient:'top',direction:'horizontal',titleFontSize:11,titleColor:'#64748b',
+        labelFontSize:11,labelColor:'#475569',labelLimit:160,symbolSize:70,padding:0,offset:12},
+      bar:{color:'#447b9f',binSpacing:2},
+      line:{strokeWidth:2},
+      point:{size:36,filled:true},
+    },
     autosize:{type:'fit',contains:'padding',resize:true},data:{values:rows.map((row,index) => {
       const sourceIndex = Number.isInteger(row.__source_index) ? row.__source_index : index;
       return {...row,__row_order:sourceIndex,__valid_count:view.metadata?.row_valid_counts?.[sourceIndex]?.[measure]};
@@ -74,6 +92,8 @@ export function buildChartSpec(view, presentation = null) {
   if (type === 'bar') {
     const horizontal = view.columns?.[x]?.type === 'quantitative';
     spec.mark = {type:'bar',tooltip:true,cornerRadiusEnd:2};
+    const categories = new Set((view.data || []).map(row => row[horizontal ? y : x]));
+    if (categories.size <= 5 && !color) spec.mark.size = 48;
     spec.encoding = {x:axis(x),y:axis(y),tooltip:tool(x,y,color)};
     const quantitative = horizontal ? spec.encoding.x : spec.encoding.y;
     quantitative.stack = visual.stack && visual.stack !== 'none' ? visual.stack : null;
@@ -127,6 +147,8 @@ export function buildChartSpec(view, presentation = null) {
   }
   if (color && type !== 'heatmap') {
     spec.encoding.color = encoding(view,color,'legend');
+    spec.encoding.color.legend = {...spec.encoding.color.legend,
+      labelExpr:"length(datum.label) > 24 ? slice(datum.label, 0, 8) + '…' + slice(datum.label, -4) : datum.label"};
     if (view.columns[color].type !== 'quantitative') spec.encoding.color.scale = stableColor(view,color);
   }
   const sort = visual.sort || view.source?.arguments?.sort;
@@ -154,6 +176,9 @@ export function buildChartSpec(view, presentation = null) {
       if (layer.encoding.y) layer.encoding.y.scale = {type:'log'};
     });
     if (visual.scales.resolve === 'independent') spec.resolve = {scale:{y:'independent'}};
+  }
+  if (type === 'bar' && presentation?.valueDomain) {
+    spec.encoding.x.scale = {...spec.encoding.x.scale,domain:presentation.valueDomain};
   }
   if (selections.length) {
     if (type === 'boxplot') spec.layer.forEach(layer => {layer.encoding.opacity = {condition:{test:'datum.__selection_match',value:1},value:0.22};});

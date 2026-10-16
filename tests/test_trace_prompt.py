@@ -205,3 +205,11 @@ def test_prompt_does_not_accept_experiment_context_or_condition():
     text = build_instructions({'dataset_id': 'fixture', 'fields': ['neutral_field']}, [], {'dashboard_revision': 0})
     assert 'participant-secret' not in text and 'trial-secret' not in text
     assert 'turn_taking' not in text and 'revision_enabled' not in text
+
+
+def test_prompt_requires_english_output_without_translating_user_records():
+    text = build_instructions({'dataset_id': 'fixture'}, [])
+    assert 'Use English for all spoken and written responses' in text
+    assert 'even when the user speaks another language' in text
+    assert "Preserve the user's verbatim transcript and raw dataset values" in text
+    assert "Respond concisely in the user's language" not in text

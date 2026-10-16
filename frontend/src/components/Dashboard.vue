@@ -52,7 +52,7 @@
       </button>
     </header>
 
-    <section ref="chartGrid" class="chart-grid" aria-label="Analytical dashboard">
+    <section ref="chartGrid" v-chart-grid class="chart-grid" aria-label="Analytical dashboard">
       <ChartSlot v-for="view in store.views" :key="view.id" :view="view" :available-width="chartGridWidth" />
     </section>
 
@@ -177,6 +177,7 @@ import { useDashboardStore } from "../stores/dashboard";
 import { groupTranscriptItems } from "../transcriptGroups";
 import { microphoneControl } from "../realtimePolicy";
 import { formatFilter } from '../specFactory.js';
+import { vChartGrid } from '../chartGrid.js';
 
 const store = useDashboardStore();
 const audio = useAudio();
@@ -294,7 +295,7 @@ function statusPlaceholder(item) {
 }
 
 function formatTime(timestamp) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('en-US', {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -311,7 +312,7 @@ function formatParameters(parameters) {
 }
 
 function formatCount(value) {
-  return new Intl.NumberFormat().format(Number(value) || 0);
+  return new Intl.NumberFormat('en-US').format(Number(value) || 0);
 }
 
 function filterLabel(filter) {

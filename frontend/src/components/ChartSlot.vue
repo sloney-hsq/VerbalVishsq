@@ -7,10 +7,11 @@
       'chart-card--multi-series': isMultiSeriesLine(view),
     }]"
     :style="cardStyle"
+    :data-layout-span="layout.columnSpan"
   >
     <header class="chart-card__header">
-      <div class="chart-card__identity">
-        <span class="view-id">{{ viewLabel }}</span>
+      <div class="chart-card__heading">
+        <h2 :title="view.title">{{ view.title }}</h2>
         <span class="chart-type">{{ chartTypeLabel }}</span>
       </div>
       <div class="chart-card__badges">
@@ -30,13 +31,12 @@
           {{ resolvedHighlight.label }}
         </span>
       </div>
-      <h2>{{ view.title }}</h2>
     </header>
     <details v-if="metadataNotices.length" class="analysis-notices">
       <summary>{{ metadataNotices.length }} analysis {{ metadataNotices.length === 1 ? 'notice' : 'notices' }}</summary>
       <ul><li v-for="(notice,index) in metadataNotices" :key="index">{{ notice }}</li></ul>
     </details>
-    <nav v-if="layout.heatmap.enabled" class="heatmap-pages" aria-label="Heatmap pages">
+    <nav v-if="layout.category.enabled" class="heatmap-pages" :aria-label="view.chart_type === 'heatmap' ? 'Heatmap pages' : 'Category pages'">
       <button type="button" :disabled="presentation.mode === 'all' || presentation.pageIndex === 0" @click="previousPage">Previous</button>
       <span v-if="presentation.mode === 'paged'">Page {{ presentation.pageIndex + 1 }} of {{ presentation.pageCount }}</span>
       <button type="button" :disabled="presentation.mode === 'all' || presentation.pageIndex >= presentation.pageCount - 1" @click="nextPage">Next</button>
@@ -70,21 +70,22 @@ let embeddedView = null;
 let vegaEmbedPromise = null;
 let renderGeneration = 0;
 let renderQueue = Promise.resolve();
+let bodyObserver = null;
+let observedWidth = 0;
 const pageIndex = ref(0);
 const heatmapMode = ref('paged');
 const layout = computed(() => chartLayoutForView(props.view,props.availableWidth));
 const presentation = computed(() => heatmapPresentation(props.view,
   {pageIndex:pageIndex.value,mode:heatmapMode.value},props.availableWidth));
-const domainSignature = computed(() => JSON.stringify(layout.value.heatmap.domain));
+const domainSignature = computed(() => JSON.stringify(layout.value.category.domain));
 const cardStyle = computed(() => ({
   gridColumn: layout.value.columnSpan > 1 ? `span ${layout.value.columnSpan}` : 'span 1',
-  minHeight:`${layout.value.cardHeight}px`,
 }));
 const categoryRange = computed(() => {
-  const total = layout.value.heatmap.domain.length;
+  const total = layout.value.category.domain.length;
   if (presentation.value.mode === 'all') return `All ${total} categories`;
-  const start = total ? presentation.value.pageIndex * layout.value.heatmap.pageSize + 1 : 0;
-  const end = Math.min(total,start + layout.value.heatmap.pageSize - 1);
+  const start = total ? presentation.value.pageIndex * layout.value.category.pageSize + 1 : 0;
+  const end = Math.min(total,start + layout.value.category.pageSize - 1);
   return `${start}–${end} of ${total} categories`;
 });
 const metadataNotices = computed(() => {
@@ -105,10 +106,6 @@ const isDimmed = computed(() => (
   store.highlightedViewIds.length > 0 &&
   !props.view.highlighted
 ));
-const viewLabel = computed(() => {
-  const match = String(props.view.id || "").match(/view(\d+)/i);
-  return match ? `View ${match[1]}` : String(props.view.id || "View");
-});
 const chartTypeLabel = computed(() => ({
   line: "Line",
   bar: "Bar",
@@ -121,8 +118,8 @@ const hasSharedOrder = computed(() => (
   props.view.order_contract?.mode === "shared_rank" &&
   props.view.order_contract?.verified === true
 ));
-const chartBodyStyle = computed(() => ({minHeight:`${Math.min(presentation.value.plotHeight,512)}px`,
-  maxHeight:presentation.value.mode === 'all' ? '560px' : presentation.value.scrollY ? '520px' : 'none',
+const chartBodyStyle = computed(() => ({
+  maxHeight:presentation.value.mode === 'all' || presentation.value.scrollY ? '560px' : 'none',
   '--plot-min-width':`${presentation.value.plotMinWidth || 0}px`}));
 
 watch(
@@ -131,7 +128,7 @@ watch(
   { deep: true },
 );
 watch(domainSignature, () => {
-  pageIndex.value = Math.min(pageIndex.value,Math.max(0,layout.value.heatmap.pageCount - 1));
+  pageIndex.value = Math.min(pageIndex.value,Math.max(0,layout.value.category.pageCount - 1));
 });
 watch([pageIndex,heatmapMode,() => props.availableWidth],() => nextTick(render));
 watch(
@@ -140,9 +137,20 @@ watch(
   { deep: true },
 );
 
-onMounted(() => nextTick(render));
+onMounted(() => {
+  bodyObserver = new ResizeObserver(entries => {
+    const width = Math.round(entries[0]?.contentRect?.width || 0);
+    if (width > 0 && width !== observedWidth) {
+      observedWidth = width;
+      nextTick(render);
+    }
+  });
+  if (vegaContainer.value) bodyObserver.observe(vegaContainer.value);
+  nextTick(render);
+});
 onBeforeUnmount(() => {
   renderGeneration += 1;
+  bodyObserver?.disconnect();
   clearChart();
 });
 
@@ -165,7 +173,6 @@ async function performRender(generation) {
     const result = await vegaEmbed(vegaContainer.value, spec, {
       actions: false,
       renderer: "svg",
-      theme: "vox",
     });
     if (generation !== renderGeneration) {
       result.view?.finalize?.();
@@ -216,12 +223,12 @@ function clearChart() {
   flex-direction: column;
   width: 100%;
   min-width: 0;
-  padding: 11px 12px 10px;
+  padding: 18px 18px 14px;
   overflow: hidden;
-  border: 1px solid #d9e1ec;
+  border: 1px solid #e3e8ef;
   border-radius: 12px;
   background: #fff;
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.025);
   transition: opacity 160ms ease, box-shadow 160ms ease;
 }
 
@@ -237,13 +244,13 @@ function clearChart() {
 
 .chart-card__header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  min-height: 42px;
-  gap: 5px 8px;
+  gap: 8px;
+  margin-bottom: 14px;
 }
 
-.chart-card__identity,
+.chart-card__heading,
 .chart-card__badges {
   display: flex;
   align-items: center;
@@ -252,11 +259,12 @@ function clearChart() {
 }
 
 .chart-card__badges {
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
 }
+.chart-card__badges:empty { display:none; }
+.chart-card__heading { justify-content:space-between; align-items:flex-start; gap:12px; }
 
-.view-id,
 .chart-type,
 .chart-card__badges span {
   display: inline-flex;
@@ -275,12 +283,6 @@ function clearChart() {
   white-space: nowrap;
 }
 
-.view-id {
-  border-color: #bfd7ff;
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
 .highlight-badge {
   max-width: 200px;
   border-color: #f4c85c !important;
@@ -289,14 +291,13 @@ function clearChart() {
 }
 
 .chart-card h2 {
-  grid-column: 1 / -1;
   min-width: 0;
   margin: 0;
   overflow: hidden;
   color: #1f2937;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 650;
-  line-height: 1.2;
+  line-height: 1.45;
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -319,7 +320,7 @@ function clearChart() {
 }
 
 .chart-card__body {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   width: 100%;
   min-width: 0;
   overflow: auto;

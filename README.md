@@ -8,6 +8,8 @@
 
 这里的泛化单位是 **数据文件 + 对应的 Python 接口文件**，不是承诺任何 CSV 上传后自动理解业务。接口负责数据语义、指标、SQL 和领域工具；运行时负责响应生命周期、事务提交和消息发送；前端按返回的字段元数据绘图。
 
+产品界面、图表文本、系统语音/文字回答及参与者任务材料统一使用英文，供国际评审与演示使用。后续代理遵循 [AGENTS.md](AGENTS.md)；用户原始转写和原始数据值保持原样。英文任务材料版本为 1.1，已有排程和历史会话不回写。
+
 已有两个不同接口：
 
 | 接口 | 数据 | 接口工具 | 典型口径 |
@@ -217,7 +219,7 @@ $env:VERBALVIS_VISUAL_CHECK_MANIFEST = (Resolve-Path ../.superpowers/study-views
 npm run dev -- --host 127.0.0.1 --port 5175 --strictPort
 ```
 
-打开 `http://127.0.0.1:5175/visual-check.html`。类别热力图超过 24 类时按 20 类分页，所有页共用色标；全图和长横条图在卡片内滚动。底部的 synthetic edge cases 仅用于长标题、缺失值和分面布局验收，不是 Olist 研究数据。
+打开 `http://127.0.0.1:5175/visual-check.html`。卡片按图形内容高度紧凑排列，界面不显示内部 view ID 或调试侧栏。类别热力图超过 24 类时按 20 类分页；横向条形图超过 20 类时按 14 类分页。分页保留完整数据及统一色域/数值尺度，查看全图时在卡片内滚动。添加 `?debug=1` 可查看用于长标题、缺失值和分面布局验收的 synthetic edge cases；它们不是 Olist 研究数据。
 
 真实 pilot 不再依赖手写 URL：[Olist Pilot 运行手册](PILOT_RUNBOOK.md) 定义了预飞、四个交叉平衡序列、标准 trial 流程、失败/重试边界、每日 Trace 质检与 pilot 结束门槛；[正式实验冻结清单](STUDY_FREEZE_CHECKLIST.md) 明确了从 pilot 到正式 study wave 前必须固定的研究、软件、隐私和变更控制事项。任务与分配来自 `experiments/olist_pilot.json`，参与者排程使用：
 

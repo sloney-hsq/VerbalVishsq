@@ -1,19 +1,14 @@
 <template>
   <main class="check-shell">
-    <aside>
-      <strong>Component layout check</strong>
-      <p>Production ChartSlot components with a measured dashboard container. No provider, WebSocket, microphone, or simulated voice session.</p>
-      <p>{{ views.length }} exported views</p>
-    </aside>
     <section>
       <p v-if="error" role="alert">{{ error }}</p>
-      <div ref="grid" class="chart-grid">
+      <div ref="grid" v-chart-grid class="chart-grid">
         <ChartSlot v-for="view in views" :key="view.id" :view="view" :available-width="width" />
       </div>
-      <details class="edge-cases">
+      <details v-if="showDebug" class="edge-cases">
         <summary>Local synthetic edge cases</summary>
         <p>Layout-only fixtures: long title, null values, three facets, and a long horizontal bar.</p>
-        <div class="chart-grid">
+        <div v-chart-grid class="chart-grid">
           <ChartSlot v-for="view in edgeViews" :key="view.id" :view="view" :available-width="width" />
         </div>
       </details>
@@ -24,12 +19,22 @@
 <script setup>
 import {onBeforeUnmount,onMounted,ref} from 'vue';
 import ChartSlot from './ChartSlot.vue';
+import {vChartGrid} from '../chartGrid.js';
 
 const views = ref([]);
 const error = ref('');
 const grid = ref(null);
 const width = ref(0);
 let observer;
+const showDebug = new URLSearchParams(window.location.search).get('debug') === '1';
+const exampleTitles = {
+  regional_delivery_risk:'Delivery performance by state',
+  delivery_period_change:'Delivery performance over time',
+  low_rating_delivery:'Review scores and delivery time',
+  freight_robustness:'Freight burden by category',
+  freight_attribute_association:'Product weight and freight cost',
+  seller_delivery_stability:'Seller delivery consistency',
+};
 const baseColumns = {group:{type:'nominal',label:'Group'},value:{type:'quantitative',label:'Value',unit:'count'}};
 const edgeViews = [
   {id:'edge-long-title',title:'A deliberately long analytical title that wraps across two lines without hiding metadata badges',chart_type:'bar',result_kind:'aggregate',data:[{group:'Alpha',value:4},{group:'Beta',value:7}],columns:baseColumns,visual:{type:'bar',encoding:{x:'group',y:'value'}}},
@@ -42,7 +47,9 @@ onMounted(async () => {
   try {
     const response = await fetch('/__visual-check-data');
     if (!response.ok) throw new Error(`Fixture request failed (${response.status})`);
-    views.value = Object.values(await response.json());
+    views.value = Object.values(await response.json()).map(view => ({
+      ...view, title: exampleTitles[view.title] || view.title,
+    }));
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason);
   }
@@ -54,10 +61,9 @@ onBeforeUnmount(() => observer?.disconnect());
 </script>
 
 <style scoped>
-.check-shell { display:grid; grid-template-columns:240px minmax(0,1fr); gap:16px; min-height:100vh; padding:16px; }
-aside { padding:16px; border:1px solid #d9e1ec; border-radius:12px; background:#fff; }
+.check-shell { width:100%; max-width:1600px; margin:0 auto; min-height:100vh; padding:24px; }
 section { min-width:0; }
 .edge-cases { margin-top:16px; padding:12px; border:1px dashed #94a3b8; border-radius:12px; background:#eef2f7; }
 .edge-cases summary { cursor:pointer; font-weight:700; }
-@media(max-width:700px) { .check-shell { grid-template-columns:1fr; padding:8px; } aside { display:none; } }
+@media(max-width:700px) { .check-shell { padding:12px; } }
 </style>

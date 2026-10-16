@@ -58,3 +58,11 @@ Exact quantiles, dynamic measures and correlation calculations still materialize
 The six-task pool is not a balanced formal-study allocation. Pilot difficulty, time limits, task assignment and exclusion rules still need freezing. Offline replay is deterministic code execution, not evidence of model tool-selection quality or user benefit.
 
 The visual harness does not connect a provider, open a microphone or simulate voice participants. Real provider/device/Trace preflight and both dialogue conditions remain required before a voice user study. Comparing two voice conditions alone does not establish that voice causes more fine-grained revisions than text.
+
+## Follow-up: presentation and English product language
+
+The owner's browser feedback required removing internal view IDs and the development sidebar, fitting cards to rendered content, and compactly arranging unequal card heights. Shared chart cards now use natural heights and a resize-observed grid. Long horizontal bars offer 14-category pages and a complete scrolling view with a fixed full-data numerical domain. Heatmap paging and source-aligned validity metadata remain intact. Chart labels use the current measure definition, so an ID originally named P90 correctly displays P80 after its definition changes.
+
+All product-facing copy and participant task prompts use English. The runtime instructions require English spoken and written responses, chart titles, and explanations while preserving verbatim user transcripts and raw data values. Both task material manifests are version 1.1; historical schedules are not rewritten. Repository-wide requirements are in `AGENTS.md`.
+
+Follow-up verification: frontend 89 tests passed and production build succeeded; 27 relevant Python prompt, pilot-schedule and study-flow tests passed. Live browser checks found no Chinese interface text, no internal-ID header or sidebar, and no render error. At a 390px viewport, every rendered SVG matched its chart body width and the page had no horizontal overflow. Category paging reached 15–27 of all 27 states. Actual English voice delivery still requires a new provider-backed session and was not exercised by these checks.
