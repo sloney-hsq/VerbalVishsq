@@ -67,7 +67,7 @@ def execute_distribution(con, arguments, scope, registry):
             raise ValueError("INCOMPATIBLE_GRAIN: distribution supports one group")
         group_by = group_by[0] if group_by else None
     output = arguments.get("output", "histogram")
-    if output not in {"histogram", "box_summary"} or (output == "box_summary" and "bins" in arguments):
+    if output not in {"histogram", "box_summary", "quantiles"} or (output in {"box_summary", "quantiles"} and "bins" in arguments):
         raise ValueError("INVALID_FILTER_VALUE: invalid distribution output")
     common = registry["common"]
     requested_filters = [*(scope or []), *arguments.get("filters", [])]
@@ -87,7 +87,26 @@ def execute_distribution(con, arguments, scope, registry):
                 "default_scope_applied": default_applied, "time_range": arguments.get("time_range"),
                 "overlaps_across_groups": bool(unit == "order" and group_by and registry["fields"][group_by]["grain"] == "item")}
     rows = []
-    if output == "box_summary":
+    if output == "quantiles":
+        quantiles = arguments.get("quantiles")
+        if (not isinstance(quantiles, list) or not 1 <= len(quantiles) <= 20
+                or any(type(q) not in {int, float} or not 0 <= q <= 1 for q in quantiles)
+                or quantiles != sorted(set(quantiles))):
+            raise ValueError("INVALID_FILTER_VALUE: quantiles must be 1-20 unique ascending probabilities")
+        for group in sorted(groups, key=lambda value: str(value)):
+            values = valid[group]
+            for q in quantiles:
+                row = {"quantile": q, "value": _quantile(sorted(values), q) if values else None,
+                       "valid_count": len(values), "missing_count": len(groups[group]) - len(values)}
+                if group_by:
+                    row["group"] = group
+                rows.append(row)
+        columns = {"quantile": {"type": "quantitative", "unit": "probability"},
+                   "value": {"type": "quantitative", "source_field": field, "unit": registry["fields"][field]["unit"]},
+                   "valid_count": {"type": "quantitative", "unit": "observations"},
+                   "missing_count": {"type": "quantitative", "unit": "observations"}}
+        kind = "quantiles"
+    elif output == "box_summary":
         for group in sorted(groups, key=lambda value: str(value)):
             values = valid[group]
             row = {**summarize_box(values), "valid_count": len(values), "missing_count": len(groups[group]) - len(values)}

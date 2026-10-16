@@ -28,7 +28,7 @@ def match_predicate(view, predicate, *, require_raw=False):
         if (not entry or item['op'] not in _OPERATORS or 'value' not in item or
                 field not in encoding.values() and field not in _BIN_START and field not in _BIN_START.values()):
             raise ValueError('INVALID_SELECTION: predicate field or operator is not displayed')
-        if require_raw and not entry.get('source_field'):
+        if require_raw and (not entry.get('source_field') or entry.get('stat')):
             raise ValueError('INVALID_SELECTION: derived measure is not a row predicate')
         selected.append((field, item, entry.get('source_field')))
     matches = [row for row in view['data'] if all(_matches(row.get(field), item['op'], item['value']) for field, item, _ in selected)]

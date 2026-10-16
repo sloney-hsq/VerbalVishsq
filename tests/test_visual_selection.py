@@ -121,7 +121,33 @@ def test_highlight_accepts_displayed_aggregate_measure_but_filter_rejects_it(oli
         args = {'source_view_id': source, 'source_revision': 1,
                 'predicate': [{'field': 'y', 'op': 'eq', 'value': value}],
                 'target_view_ids': [target]}
-        assert toolbox.execute('set_selection', {**args, 'effect': 'highlight'}, draft)['success']
+        highlighted = toolbox.execute('set_selection', {**args, 'effect': 'highlight'}, draft)
+        assert highlighted['success'], highlighted
+        rejected = toolbox.execute('set_selection', {**args, 'effect': 'filter'}, draft)
+        assert not rejected['success'] and rejected['error']['code'] == 'INVALID_SELECTION'
+    finally:
+        ds.close()
+
+
+def test_dynamic_aggregate_measure_is_highlightable_but_never_a_raw_filter(olist_csvs):
+    ds, dashboard, toolbox = _stack(olist_csvs)
+    try:
+        draft = dashboard.begin_draft()
+        source = _create(toolbox, draft,
+            {'tool': 'aggregate', 'arguments': {'group_by': ['customer_state'], 'metrics': [], 'unit': 'order',
+                'measures': [{'id': 'delivery_p90', 'stat': 'quantile', 'field': 'delivery_days', 'q': .9}]}},
+            {'type': 'bar', 'encoding': {'x': 'customer_state', 'y': 'delivery_p90'}})
+        target = _create(toolbox, draft,
+            {'tool': 'aggregate', 'arguments': {'group_by': ['customer_state'], 'metrics': [], 'unit': 'order',
+                'measures': [{'id': 'delivery_p90', 'stat': 'quantile', 'field': 'delivery_days', 'q': .9}]}},
+            {'type': 'bar', 'encoding': {'x': 'customer_state', 'y': 'delivery_p90'}})
+        source_view = next(view for view in draft.document['views'] if view['id'] == source)
+        selected_row = next(row for row in source_view['data'] if row['delivery_p90'] is not None)
+        args = {'source_view_id': source, 'source_revision': source_view['view_revision'],
+                'predicate': [{'field': 'y', 'op': 'eq', 'value': selected_row['delivery_p90']}],
+                'target_view_ids': [target]}
+        highlighted = toolbox.execute('set_selection', {**args, 'effect': 'highlight'}, draft)
+        assert highlighted['success'], highlighted
         rejected = toolbox.execute('set_selection', {**args, 'effect': 'filter'}, draft)
         assert not rejected['success'] and rejected['error']['code'] == 'INVALID_SELECTION'
     finally:

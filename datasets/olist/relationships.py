@@ -7,6 +7,40 @@ import math
 from refactor_next.datasets.olist.distributions import bin_edges
 
 
+def _pearson(xs, ys):
+    if len(xs) < 2:
+        return None, "fewer_than_two_pairs"
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    dx, dy = [x - mx for x in xs], [y - my for y in ys]
+    denom = math.sqrt(sum(v * v for v in dx) * sum(v * v for v in dy))
+    return (sum(a * b for a, b in zip(dx, dy)) / denom, None) if denom else (None, "zero_variance")
+
+
+def _ranks(values):
+    order = sorted(range(len(values)), key=values.__getitem__)
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(order):
+        j = i + 1
+        while j < len(order) and values[order[j]] == values[order[i]]:
+            j += 1
+        rank = (i + 1 + j) / 2
+        for k in range(i, j): ranks[order[k]] = rank
+        i = j
+    return ranks
+
+
+def _statistics(rows, requested):
+    xs, ys = [row[1] for row in rows], [row[2] for row in rows]
+    result = {"valid_pair_count": len(rows)}
+    for name in requested:
+        value, reason = _pearson(xs, ys) if name == "pearson" else _pearson(_ranks(xs), _ranks(ys))
+        result[name] = value
+        if reason: result[name + "_reason"] = reason
+    if len(rows) < 30: result["warning"] = "small_sample"
+    return result
+
+
 def execute_relationship(con, arguments, scope, registry):
     unit, x, y = arguments["unit"], arguments["x"], arguments["y"]
     group_by = arguments.get("group_by")
@@ -15,9 +49,10 @@ def execute_relationship(con, arguments, scope, registry):
             raise ValueError("INCOMPATIBLE_GRAIN: relationship supports one group")
         group_by = group_by[0] if group_by else None
     representation = arguments.get("representation", "points")
-    if representation not in {"points", "binned_2d"}:
+    if representation not in {"points", "binned_2d", "summary"}:
         raise ValueError("INVALID_FILTER_VALUE: invalid representation")
-    if representation == "binned_2d" and "sampling" in arguments or representation == "points" and "bins" in arguments:
+    if (representation == "binned_2d" and "sampling" in arguments or representation == "points" and "bins" in arguments
+            or representation == "summary" and any(key in arguments for key in ("sampling", "bins"))):
         raise ValueError("INVALID_FILTER_VALUE: sampling and bins are exclusive")
     common = registry["common"]
     requested_filters = [*(scope or []), *arguments.get("filters", [])]
@@ -35,7 +70,28 @@ def execute_relationship(con, arguments, scope, registry):
                 "group_counts": group_counts, "effective_filters": effective,
                 "default_scope_applied": default_applied, "time_range": arguments.get("time_range"),
                 "overlaps_across_groups": bool(unit == "order" and group_by and registry["fields"][group_by]["grain"] == "item")}
-    if representation == "points":
+    requested = arguments.get("correlations", [])
+    if not isinstance(requested, list) or len(set(requested)) != len(requested) or any(x not in {"pearson", "spearman"} for x in requested):
+        raise ValueError("INVALID_FILTER_VALUE: invalid correlations")
+    overall_pairs = list({row[0]: row for row in valid}.values())
+    metadata["correlations"] = {"overall": _statistics(overall_pairs, requested), "by_group": {
+        str(group): _statistics([row for row in valid if (row[3] if group_by else None) == group], requested)
+        for group in groups}}
+    if representation == "summary":
+        rows = []
+        for group in sorted(groups, key=lambda value: str(value)):
+            eligible = [row for row in fetched if (row[3] if group_by else None) == group]
+            paired = [row for row in valid if (row[3] if group_by else None) == group]
+            stats = _statistics(paired, requested)
+            row = {"valid_pair_count": len(paired), "missing_pair_count": len(eligible) - len(paired),
+                   **{name: stats[name] for name in requested}}
+            if group_by: row["group"] = group
+            rows.append(row)
+        columns = {"valid_pair_count": {"type": "quantitative", "unit": "observations"},
+                   "missing_pair_count": {"type": "quantitative", "unit": "observations"},
+                   **{name: {"type": "quantitative", "unit": "correlation"} for name in requested}}
+        kind = "relationship_summary"
+    elif representation == "points":
         sampling = arguments.get("sampling", {})
         if not isinstance(sampling, dict) or set(sampling) - {"max_points", "seed"}:
             raise ValueError("INVALID_FILTER_VALUE: invalid sampling")

@@ -11,7 +11,7 @@ import sys
 import duckdb
 
 
-SEMANTIC_VERSION = b"olist-exploration-v5-valid-estimate-lateness"
+SEMANTIC_VERSION = b"olist-exploration-v6-study-tools"
 
 
 def _load_sibling(stem):
@@ -57,10 +57,14 @@ class Olist:
             self.schema = self._load("schema")
             self.metrics = self._load("metrics")
             self.common = self._load("query_common")
+            self.predicate = self._load("predicate_plan")
+            self.common.PREDICATE = self.predicate
+            self.measure_queries = self._load("measure_queries")
             self.queries = self._load("queries")
             self.queries.COMMON = self.common
             self.distributions = self._load("distributions")
             self.relationships = self._load("relationships")
+            self.periods = self._load("periods")
             if not config.get("data_dir"):
                 raise ValueError("Olist requires configured data_dir")
             directory = Path(config["data_dir"]).resolve(strict=True)
@@ -330,20 +334,48 @@ class Olist:
             "filters": {"fields": [name for name, field in self.schema.FIELD_INDEX.items() if field["filterable"]],
                         "operators": ["eq", "neq", "gte", "lte", "gt", "lt", "in", "between", "is_null", "is_not_null"],
                         "combination": "AND; values are parameter-bound; shared scope precedes tool filters."},
+            "capabilities": {"measures": ["mean", "median", "quantile", "threshold_ratio", "registered_ratio"],
+                "registered_ratio_formulas": ["freight_share_of_total"],
+                "filters": {"top_level": "AND", "bounded_or": True, "local_quantile_between": True},
+                "comparisons": ["difference", "relative_difference", "percentage_point_difference"],
+                "period_outputs": ["summary", "series"], "correlations": ["pearson", "spearman"]},
             "validation": deepcopy(self._validation),
         }
 
     def _filter_schema(self):
         return {"type": "object", "properties": {
+            "id": {"type": "string"},
             "field": {"type": "string", "enum": [name for name, field in self.schema.FIELD_INDEX.items() if field["filterable"]]},
-            "op": {"type": "string", "enum": list(self.common.OPS)}, "value": {},
+            "op": {"type": "string", "enum": [*self.common.OPS, "quantile_between"]}, "value": {},
         }, "required": ["field", "op"], "additionalProperties": False}
+
+    def _filter_item_schema(self):
+        leaf = self._filter_schema()
+        branch = {"type": "object", "properties": {"all": {"type": "array", "items": leaf,
+            "minItems": 1, "maxItems": 8}}, "required": ["all"], "additionalProperties": False}
+        group = {"type": "object", "properties": {"id": {"type": "string"}, "op": {"const": "or"},
+            "branches": {"type": "array", "items": branch, "minItems": 2, "maxItems": 8}},
+            "required": ["id", "op", "branches"], "additionalProperties": False}
+        return {"oneOf": [leaf, group]}
+
+    def _measure_schema(self):
+        return {"oneOf": [
+            {"type": "object", "properties": {"id": {"type": "string"}, "stat": {"enum": ["mean", "median"]},
+             "field": {"type": "string", "enum": list(self.schema.FIELD_INDEX)}}, "required": ["id", "stat", "field"], "additionalProperties": False},
+            {"type": "object", "properties": {"id": {"type": "string"}, "stat": {"const": "quantile"},
+             "field": {"type": "string", "enum": list(self.schema.FIELD_INDEX)}, "q": {"type": "number", "minimum": 0, "maximum": 1}},
+             "required": ["id", "stat", "field", "q"], "additionalProperties": False},
+            {"type": "object", "properties": {"id": {"type": "string"}, "stat": {"const": "threshold_ratio"},
+             "field": {"type": "string", "enum": list(self.schema.FIELD_INDEX)}, "op": {"enum": ["eq", "neq", "gt", "gte", "lt", "lte"]}, "value": {"type": "number"}},
+             "required": ["id", "stat", "field", "op", "value"], "additionalProperties": False},
+            {"type": "object", "properties": {"id": {"type": "string"}, "stat": {"const": "registered_ratio"},
+             "formula_id": {"const": "freight_share_of_total"}}, "required": ["id", "stat", "formula_id"], "additionalProperties": False}]}
 
     def _common_properties(self):
         return {
             "metrics": {"type": "array", "items": {"type": "string", "enum": list(self.metrics.METRIC_INDEX)},
-                        "minItems": 1, "maxItems": 4, "uniqueItems": True},
-            "filters": {"type": "array", "items": self._filter_schema()},
+                        "minItems": 0, "maxItems": 4, "uniqueItems": True},
+            "filters": {"type": "array", "items": self._filter_item_schema(), "maxItems": 20},
             "time_range": {"type": "object", "properties": {
                 "field": {"type": "string", "enum": [entry["field"] for entry in self.schema.DIMENSIONS["temporal"]]},
                 "start": {"type": "string"}, "end": {"type": "string"},
@@ -355,15 +387,17 @@ class Olist:
         dimensions, metrics = list(self.schema.GROUPABLE_DIMENSIONS), list(self.metrics.METRIC_INDEX)
         aggregate = {"group_by": {"type": "array", "items": {"type": "string", "enum": dimensions},
                                   "minItems": 0, "maxItems": 2, "uniqueItems": True}, **self._common_properties(),
+                     "unit": {"type": "string", "enum": ["order", "item"]},
+                     "measures": {"type": "array", "items": self._measure_schema(), "maxItems": 4},
                      "having": {"type": "array", "items": {"type": "object", "properties": {
-                         "field": {"type": "string", "enum": metrics}, "op": {"type": "string", "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "between"]}, "value": {}},
+                         "field": {"type": "string"}, "op": {"type": "string", "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "between"]}, "value": {}},
                          "required": ["field", "op", "value"], "additionalProperties": False}},
                      "top_k": {"type": "object", "properties": {"dimension": {"type": "string", "enum": dimensions},
-                         "metric": {"type": "string", "enum": metrics}, "k": {"type": "integer", "minimum": 1, "maximum": 50},
+                         "metric": {"type": "string"}, "k": {"type": "integer", "minimum": 1, "maximum": 50},
                          "direction": {"type": "string", "enum": ["asc", "desc"]}},
                          "required": ["dimension", "metric", "k", "direction"], "additionalProperties": False},
                      "sort": {"type": "object", "properties": {
-                         "field": {"type": "string", "enum": [*dimensions, *metrics]},
+                         "field": {"type": "string"},
                          "direction": {"type": "string", "enum": ["asc", "desc"]},
                      }, "required": ["field", "direction"], "additionalProperties": False}}
         scalar = {"type": ["string", "number", "integer", "boolean", "null"]}
@@ -372,9 +406,14 @@ class Olist:
         segment = {"type": "object", "properties": segment_properties,
                    "anyOf": [{"required": [field]} for field in dimensions], "additionalProperties": False}
         typed_segment = {"type": "object", "properties": {"id": {"type": "string"}, "label": {"type": "string"},
-            "filters": {"type": "array", "items": self._filter_schema()}}, "required": ["id", "label", "filters"], "additionalProperties": False}
+            "filters": {"type": "array", "items": self._filter_item_schema()}}, "required": ["id", "label", "filters"], "additionalProperties": False}
         comparison = {"segments": {"type": "array", "items": segment, "minItems": 2, "maxItems": 20},
                       **self._common_properties(),
+                      "unit": {"type": "string", "enum": ["order", "item"]},
+                      "measures": {"type": "array", "items": self._measure_schema(), "maxItems": 4},
+                      "comparison": {"type": "object", "properties": {"reference_segment_id": {"type": "string"},
+                          "outputs": {"type": "array", "minItems": 1, "uniqueItems": True, "items": {"enum": ["difference", "relative_difference", "percentage_point_difference"]}}},
+                          "required": ["reference_segment_id", "outputs"], "additionalProperties": False},
                       "breakdown": {"type": "string", "enum": [*dimensions, "review_score"]},
                       "normalization": {"type": "string", "enum": ["none", "within_segment"]}}
         comparison["segments"]["items"] = {"oneOf": [segment, typed_segment]}
@@ -383,36 +422,59 @@ class Olist:
         distribution = {"unit": {"type": "string", "enum": ["order", "item"]},
             "field": {"type": "string", "enum": [*numeric_order, *numeric_item]},
             "group_by": {"type": ["string", "array"], "enum": dimensions},
-            "output": {"type": "string", "enum": ["histogram", "box_summary"]},
+            "output": {"type": "string", "enum": ["histogram", "box_summary", "quantiles"]},
+            "quantiles": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "number", "minimum": 0, "maximum": 1}},
             "bins": {"type": "object", "properties": {"edges": {"type": "array", "items": {"type": "number"}},
                 "step": {"type": "number"}, "count": {"type": "integer"}}, "additionalProperties": False},
-            "filters": {"type": "array", "items": self._filter_schema()},
+            "filters": {"type": "array", "items": self._filter_item_schema()},
             "time_range": self._common_properties()["time_range"]}
         distribution["group_by"] = {"oneOf": [{"type": "string", "enum": dimensions},
                                                {"type": "array", "items": {"type": "string", "enum": dimensions}, "maxItems": 1}]}
         relationship = {"unit": {"type": "string", "enum": ["order", "item"]},
             "x": {"type": "string", "enum": [*numeric_order, *numeric_item]},
             "y": {"type": "string", "enum": [*numeric_order, *numeric_item]},
-            "group_by": distribution["group_by"], "representation": {"type": "string", "enum": ["points", "binned_2d"]},
+            "group_by": distribution["group_by"], "representation": {"type": "string", "enum": ["points", "binned_2d", "summary"]},
+            "correlations": {"type": "array", "uniqueItems": True, "items": {"enum": ["pearson", "spearman"]}},
             "sampling": {"type": "object", "properties": {"max_points": {"type": "integer", "minimum": 1, "maximum": 5000},
                 "seed": {"type": "integer"}}, "additionalProperties": False},
             "bins": {"type": "object", "properties": {"x_count": {"type": "integer", "minimum": 1, "maximum": 50},
                 "y_count": {"type": "integer", "minimum": 1, "maximum": 50}}, "additionalProperties": False},
-            "filters": {"type": "array", "items": self._filter_schema()},
+            "filters": {"type": "array", "items": self._filter_item_schema()},
             "time_range": self._common_properties()["time_range"]}
+        period = {"periods": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "object",
+                "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}},
+                "required": ["id", "label", "start", "end"], "additionalProperties": False}},
+            "time_field": {"const": "order_date"}, "output": {"enum": ["summary", "series"]},
+            "grain": {"enum": ["day", "week", "month"]}, "group_by": {"oneOf": [{"type": "string", "enum": dimensions},
+                {"type": "array", "maxItems": 1, "items": {"type": "string", "enum": dimensions}}]},
+            "metrics": self._common_properties()["metrics"], "measures": {"type": "array", "maxItems": 4, "items": self._measure_schema()},
+            "unit": {"type": "string", "enum": ["order", "item"]}, "filters": self._common_properties()["filters"],
+            "comparison": {"type": "object", "properties": {"reference_period_id": {"type": "string"},
+                "outputs": {"type": "array", "minItems": 1, "uniqueItems": True, "items": {"enum": ["difference", "relative_difference", "percentage_point_difference"]}}},
+                "required": ["reference_period_id", "outputs"], "additionalProperties": False}}
         return [
             {"name": "aggregate", "description": "Aggregate registered metrics across zero to two semantic dimensions.",
              "read_only": True, "parameters": {"type": "object", "properties": aggregate,
-                                                  "required": ["group_by", "metrics"], "additionalProperties": False}},
+                 "required": ["group_by"], "anyOf": [{"properties": {"metrics": {"minItems": 1}}, "required": ["metrics"]},
+                                                       {"properties": {"measures": {"minItems": 1}, "unit": {"type": "string"}}, "required": ["measures", "unit"]}],
+                 "additionalProperties": False}},
             {"name": "compare_segments", "description": "Compare direct dimension segments with common metrics and filters.",
              "read_only": True, "parameters": {"type": "object", "properties": comparison,
-                                                  "required": ["segments", "metrics"], "additionalProperties": False}},
+                 "required": ["segments"], "anyOf": [{"properties": {"metrics": {"minItems": 1}}, "required": ["metrics"]},
+                                                       {"properties": {"measures": {"minItems": 1}}, "required": ["measures", "unit"]}],
+                 "additionalProperties": False}},
             {"name": "distribution", "description": "Full-data histogram or box summary at order or item grain.",
              "read_only": True, "parameters": {"type": "object", "properties": distribution,
                  "required": ["unit", "field", "output"], "additionalProperties": False}},
             {"name": "relationship", "description": "Paired points or complete two-dimensional bins.",
              "read_only": True, "parameters": {"type": "object", "properties": relationship,
                  "required": ["unit", "x", "y", "representation"], "additionalProperties": False}},
+            {"name": "compare_periods", "description": "Compare two explicit non-overlapping calendar periods.",
+             "read_only": True, "parameters": {"type": "object", "properties": period,
+                 "required": ["periods", "time_field", "output"],
+                 "anyOf": [{"properties": {"metrics": {"minItems": 1}}, "required": ["metrics"]},
+                           {"properties": {"measures": {"minItems": 1}}, "required": ["measures", "unit"]}],
+                 "additionalProperties": False}},
         ]
 
     def _columns(self, names):
@@ -434,14 +496,18 @@ class Olist:
         return columns
 
     def _execute_typed_segments(self, arguments, scope):
+        if arguments.get("measures"):
+            return self._execute_measure_segments(arguments, scope)
         segments = arguments["segments"]
         ids = [segment.get("id", f"legacy-{index + 1}") for index, segment in enumerate(segments)]
         if len(set(ids)) != len(ids):
             raise ValueError("INVALID_FILTER_VALUE: segment IDs must be unique")
         breakdown = arguments.get("breakdown")
         normalization = arguments.get("normalization", "none")
-        if normalization == "within_segment" and (breakdown != "review_score" or arguments["metrics"] != ["reviewed_order_count"]):
-            raise ValueError("INCOMPATIBLE_GRAIN: normalization needs a complete additive count breakdown")
+        compositions = {"review_score": "reviewed_order_count", "customer_state": "order_count",
+                        "order_status": "order_count", "product_category": "item_count"}
+        if normalization == "within_segment" and (breakdown not in compositions or arguments["metrics"] != [compositions[breakdown]]):
+            raise ValueError("INCOMPATIBLE_GRAIN: normalization needs an approved complete additive count breakdown")
         if breakdown == "review_score" and arguments["metrics"] != ["reviewed_order_count"]:
             raise ValueError("INCOMPATIBLE_GRAIN: review_score breakdown requires reviewed_order_count")
         rows, memberships = [], []
@@ -490,6 +556,13 @@ class Olist:
                              **({"breakdown": mapped.pop(breakdown)} if breakdown else {}), **mapped})
         if len(rows) > 500:
             raise ValueError("RESULT_TOO_LARGE: segment result exceeds 500 rows")
+        if normalization == "within_segment" and breakdown != "review_score":
+            metric = arguments["metrics"][0]
+            totals = {sid: sum(row[metric] for row in rows if row["segment_id"] == sid) for sid in ids}
+            for row in rows:
+                denominator = totals[row["segment_id"]]
+                row["share"] = row[metric] / denominator if denominator else None
+                row["segment_denominator"] = denominator
         overlap = sum(1 for order_id in set().union(*memberships) if sum(order_id in group for group in memberships) > 1)
         columns = {"segment_id": {"type": "nominal"}, "segment": {"type": "nominal"},
                    **({"breakdown": {"type": "ordinal" if breakdown == "review_score" else self.schema.FIELD_INDEX[breakdown]["type"], "source_field": breakdown}} if breakdown else {}),
@@ -501,40 +574,295 @@ class Olist:
         if normalization == "within_segment":
             columns.update(share={"type": "quantitative", "unit": "ratio", "already_normalized": True},
                            segment_denominator={"type": "quantitative", "unit": "orders"})
+        comparison = arguments.get("comparison")
+        comparison_meta = None
+        if comparison:
+            reference_id = comparison["reference_segment_id"]
+            if reference_id not in ids:
+                raise ValueError("INVALID_COMPARISON: unknown reference segment")
+            references = {row.get("breakdown"): row for row in rows if row["segment_id"] == reference_id}
+            comparison_meta = {"reference_segment_id": reference_id, "outputs": comparison["outputs"]}
+            for metric in arguments["metrics"]:
+                is_ratio = self.metrics.METRIC_INDEX[metric]["unit"] == "ratio"
+                if "percentage_point_difference" in comparison["outputs"] and not is_ratio:
+                    raise ValueError("INVALID_COMPARISON: percentage points require ratio metric")
+                for output in comparison["outputs"]:
+                    name = metric + "__" + output
+                    columns[name] = {"type": "quantitative", "unit": "percentage_points" if output == "percentage_point_difference" else "ratio" if output == "relative_difference" else self.metrics.METRIC_INDEX[metric]["unit"]}
+                for row in rows:
+                    reference = references.get(row.get("breakdown"))
+                    value, ref = row.get(metric), reference.get(metric) if reference else None
+                    diff = value - ref if value is not None and ref is not None else None
+                    if "difference" in comparison["outputs"]: row[metric + "__difference"] = diff
+                    if "relative_difference" in comparison["outputs"]: row[metric + "__relative_difference"] = diff / abs(ref) if diff is not None and ref != 0 else None
+                    if "percentage_point_difference" in comparison["outputs"]: row[metric + "__percentage_point_difference"] = 100 * diff if diff is not None else None
         effective, default_applied = self.common.effective_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
         return {"success": True, "dataset_version": self.version, "result_kind": "segments", "rows": rows,
                 "columns": columns, "truncated": False,
                 "metadata": {"observation_unit": "order", "overlap_count": overlap, "overlap_unit": "order",
-                             "normalization": normalization, "composition_complete": breakdown == "review_score",
-                             "segment_denominator": "reviewed_order_count" if breakdown == "review_score" else None,
+                             "normalization": normalization, "composition_complete": normalization == "within_segment" and breakdown in compositions,
+                             "segment_denominator": compositions.get(breakdown) if normalization == "within_segment" else None,
                              "effective_filters": effective, "default_scope_applied": default_applied,
                              "effective_filters_by_segment": effective_by_segment,
                              "default_scope_applied_by_segment": default_by_segment,
                              "metric_valid_counts": valid_counts,
+                             "comparison": comparison_meta,
                              "time_range": arguments.get("time_range"),
                              "metric_denominators": {metric: self.metrics.METRIC_INDEX[metric]["denominator"] for metric in arguments["metrics"]}}}
+
+    def _execute_measure_segments(self, arguments, scope):
+        if arguments.get("normalization", "none") != "none":
+            raise ValueError("INCOMPATIBLE_GRAIN: dynamic measures do not support normalized composition")
+        segments = arguments["segments"]
+        ids = [segment.get("id", f"legacy-{index + 1}") for index, segment in enumerate(segments)]
+        if len(set(ids)) != len(ids):
+            raise ValueError("INVALID_COMPARISON: segment IDs must be unique")
+        segment_parts = []
+        for segment in segments:
+            if "filters" in segment:
+                segment_parts.append((segment["filters"], segment["label"]))
+            else:
+                direct = {key: value for key, value in segment.items() if key not in {"name", "label"}}
+                segment_parts.append(([{"field": key, "op": "eq", "value": value} for key, value in direct.items()],
+                    segment.get("label") or segment.get("name") or ", ".join(f"{k}={v}" for k, v in direct.items())))
+        common_requested = [*(scope or []), *arguments.get("filters", [])]
+        if any(item.get("op") == "quantile_between" for item in arguments.get("filters", []) if isinstance(item, dict)):
+            contexts = [([*common_requested, *local], arguments.get("time_range")) for local, _ in segment_parts]
+            base_filters, pooled_rules = self.measure_queries.resolve_quantile_contexts(self.con, arguments["unit"], contexts,
+                {"fields": self.schema.FIELD_INDEX, "predicate": self.predicate}, base_filters=common_requested)
+            effective_scope = []
+        else:
+            base_filters, pooled_rules, effective_scope = arguments.get("filters", []), [], scope
+        breakdown = arguments.get("breakdown")
+        rows, valid_counts, memberships = [], {m["id"]: {} for m in arguments["measures"]}, []
+        fixed_valid = {m: {} for m in arguments.get("metrics", [])}
+        columns = {"segment_id": {"type": "nominal"}, "segment": {"type": "nominal"}}
+        for index, segment in enumerate(segments):
+            local, label = segment_parts[index]
+            if any(item.get("op") == "quantile_between" for item in local if isinstance(item, dict)):
+                raise ValueError("INVALID_FILTER_VALUE: quantile rules are not allowed inside segments")
+            query_args = {"unit": arguments["unit"], "group_by": [breakdown] if breakdown else [], "metrics": [], "measures": arguments["measures"],
+                "filters": [*base_filters, *local],
+                **({"time_range": arguments["time_range"]} if "time_range" in arguments else {})}
+            measured = self.measure_queries.execute(self.con, query_args, effective_scope,
+                {"fields": self.schema.FIELD_INDEX, "predicate": self.predicate})
+            segment_rows = measured["rows"]
+            if arguments.get("metrics"):
+                fixed_args = {"group_by": [breakdown] if breakdown else [], "metrics": arguments["metrics"],
+                    "filters": query_args["filters"], **({"time_range": arguments["time_range"]} if "time_range" in arguments else {}), "limit": 500}
+                fsql, fparams, fnames, flimit = self.queries.build_aggregate(fixed_args, effective_scope, self.schema.FIELD_INDEX,
+                    self.metrics.METRIC_INDEX, include_valid_counts=True)
+                fixed_rows = [dict(zip(fnames, raw)) for raw in self.con.execute(fsql, fparams).fetchall()[:flimit]]
+                fixed_index = {row.get(breakdown) if breakdown else None: row for row in fixed_rows}
+            else:
+                fixed_index = {}
+            for measured_index, measured_row in enumerate(segment_rows):
+                key = measured_row.get(breakdown) if breakdown else None
+                fixed = fixed_index.get(key, {})
+                row = {"segment_id": ids[index], "segment": label,
+                       **({"breakdown": key} if breakdown else {}),
+                       **{k: v for k, v in fixed.items() if k != breakdown and not k.startswith("__valid_")},
+                       **{k: v for k, v in measured_row.items() if k != breakdown}}
+                rows.append(row)
+                for metric in arguments.get("metrics", []):
+                    count = fixed.get("__valid_" + metric, 0)
+                    fixed_valid[metric][f"{ids[index]}:{key}" if breakdown else ids[index]] = count
+            columns.update(measured["columns"])
+            if breakdown:
+                columns.pop(breakdown, None)
+                columns["breakdown"] = {"type": self.schema.FIELD_INDEX[breakdown]["type"], "source_field": breakdown}
+            columns.update(self._columns(arguments.get("metrics", [])))
+            for mid, counts in measured["metadata"]["measure_valid_counts"].items():
+                for key, count in counts.items():
+                    valid_counts[mid][f"{ids[index]}:{key}" if breakdown else ids[index]] = count
+            sql, params, _ = self.predicate.observation_sql(arguments["unit"], [], [],
+                [*(effective_scope or []), *query_args["filters"]], arguments.get("time_range"), self.schema.FIELD_INDEX)
+            memberships.append({r[0] for r in self.con.execute(sql, params).fetchall()})
+        comparison = arguments.get("comparison")
+        comparison_meta = None
+        if comparison:
+            reference_id = comparison["reference_segment_id"]
+            if reference_id not in ids:
+                raise ValueError("INVALID_COMPARISON: unknown reference segment")
+            references = {(row.get("breakdown"), row["segment_id"]): row for row in rows}
+            comparison_meta = {"reference_segment_id": reference_id, "outputs": comparison["outputs"],
+                "formulas": {"difference": "value-reference", "relative_difference": "(value-reference)/abs(reference)",
+                             "percentage_point_difference": "100*(value-reference)"}}
+            display = [(m["id"], m["stat"] in {"threshold_ratio", "registered_ratio"}) for m in arguments["measures"]]
+            display += [(m, self.metrics.METRIC_INDEX[m]["unit"] == "ratio") for m in arguments.get("metrics", [])]
+            for mid, is_ratio in display:
+                if "percentage_point_difference" in comparison["outputs"] and not is_ratio:
+                    raise ValueError("INVALID_COMPARISON: percentage points require a ratio")
+                for output in comparison["outputs"]:
+                    name = mid + "__" + output
+                    columns[name] = {"type": "quantitative", "unit": "percentage_points" if output == "percentage_point_difference" else columns[mid]["unit"] if output == "difference" else "ratio"}
+                for row in rows:
+                    reference = references.get((row.get("breakdown"), reference_id))
+                    value, ref = row.get(mid), reference.get(mid) if reference else None
+                    difference = value - ref if value is not None and ref is not None else None
+                    if "difference" in comparison["outputs"]: row[mid + "__difference"] = difference
+                    if "relative_difference" in comparison["outputs"]:
+                        row[mid + "__relative_difference"] = difference / abs(ref) if difference is not None and ref != 0 else None
+                    if "percentage_point_difference" in comparison["outputs"]:
+                        row[mid + "__percentage_point_difference"] = 100 * difference if difference is not None else None
+        overlap = sum(1 for oid in set().union(*memberships) if sum(oid in group for group in memberships) > 1)
+        return {"success": True, "dataset_version": self.version, "result_kind": "segments", "rows": rows,
+            "columns": columns, "truncated": False, "metadata": {"observation_unit": arguments["unit"],
+            "measure_definitions": {m["id"]: m for m in arguments["measures"]}, "measure_valid_counts": valid_counts,
+            "metric_valid_counts": fixed_valid,
+            "quantile_rules": pooled_rules, "comparison": comparison_meta, "overlap_count": overlap, "overlap_unit": arguments["unit"]}}
+
+    def _execute_mixed_aggregate(self, arguments, scope):
+        arguments = deepcopy(arguments)
+        quantile_rules = []
+        if any(item.get("op") == "quantile_between" for item in arguments.get("filters", []) if isinstance(item, dict)):
+            resolved, quantile_rules = self.measure_queries.resolve_quantile_filters(self.con, arguments["unit"],
+                [*(scope or []), *arguments.get("filters", [])], arguments.get("time_range"),
+                {"fields": self.schema.FIELD_INDEX, "predicate": self.predicate})
+            arguments["filters"], scope = resolved, []
+        metric_names = set(arguments["metrics"]); measure_names = {m["id"] for m in arguments["measures"]}
+        control_fields = [item["field"] for item in arguments.get("having", [])]
+        if arguments.get("sort"): control_fields.append(arguments["sort"]["field"])
+        if arguments.get("top_k"): control_fields.append(arguments["top_k"]["metric"])
+        if any(field not in metric_names | measure_names | set(arguments["group_by"]) | set(self.metrics.METRIC_INDEX) for field in control_fields):
+            raise ValueError("INVALID_MEASURE: unknown mixed aggregate control field")
+        internal_metrics = list(dict.fromkeys([*arguments["metrics"],
+            *[item["field"] for item in arguments.get("having", []) if item["field"] in self.metrics.METRIC_INDEX],
+            *([arguments["top_k"]["metric"]] if arguments.get("top_k", {}).get("metric") in self.metrics.METRIC_INDEX else [])]))
+        fixed_args = {k: deepcopy(v) for k, v in arguments.items() if k not in {"measures", "unit", "having", "sort", "top_k", "limit"}}
+        fixed_args["metrics"] = internal_metrics; fixed_args["limit"] = 1_000_000
+        measured_args = {k: deepcopy(v) for k, v in arguments.items() if k not in {"having", "sort", "top_k", "limit"}}
+        measured_args["limit"] = 1_000_000
+        sql, params, names, limit = self.queries.build_aggregate(fixed_args, scope, self.schema.FIELD_INDEX,
+            self.metrics.METRIC_INDEX, include_valid_counts=True)
+        fetched = self.con.execute(sql, params).fetchall()
+        if len(fetched) > limit:
+            raise ValueError("RESULT_TOO_LARGE: mixed aggregate exceeds one million groups")
+        fixed_rows, fixed_counts = [], []
+        for raw in fetched:
+            row = dict(zip(names, raw)); counts = {}
+            for metric in internal_metrics: counts[metric] = row.pop("__valid_" + metric)
+            fixed_rows.append(row); fixed_counts.append(counts)
+        measured = self.measure_queries.execute(self.con, measured_args, scope,
+            {"fields": self.schema.FIELD_INDEX, "predicate": self.predicate})
+        if measured["truncated"]:
+            raise ValueError("RESULT_TOO_LARGE: mixed aggregate exceeds one million groups")
+        keys = arguments["group_by"]
+        fixed_index = {tuple(row.get(k) for k in keys): (row, fixed_counts[i]) for i, row in enumerate(fixed_rows)}
+        measured_index = {tuple(row.get(k) for k in keys): (row, measured["metadata"]["row_valid_counts"][i])
+                          for i, row in enumerate(measured["rows"])}
+        eligible_by_key = {tuple(row.get(k) for k in keys): measured["metadata"]["row_eligible_counts"][i]
+                           for i, row in enumerate(measured["rows"])}
+        rows, row_counts = [], []
+        for seed in fixed_rows:
+            key = tuple(seed.get(k) for k in keys)
+            if key not in fixed_index or key not in measured_index: continue
+            fixed, fc = fixed_index[key]; dynamic, dc = measured_index[key]
+            rows.append({**fixed, **{k: v for k, v in dynamic.items() if k not in keys}})
+            row_counts.append({**fc, **dc})
+        counts_by_key = {tuple(row.get(k) for k in keys): row_counts[i] for i, row in enumerate(rows)}
+        top_metadata = None
+        top = arguments.get("top_k")
+        if top:
+            if top["dimension"] not in keys or top["metric"] not in metric_names | measure_names:
+                raise ValueError("INVALID_MEASURE: invalid mixed top_k")
+            rank_args = {k: deepcopy(v) for k, v in arguments.items() if k not in {"having", "sort", "top_k", "limit"}}
+            rank_args["group_by"] = [top["dimension"]]; rank_args["limit"] = 1_000_000
+            ranked_result = self._execute_mixed_aggregate(rank_args, scope)
+            if ranked_result["truncated"]:
+                raise ValueError("RESULT_TOO_LARGE: mixed Top K ranking exceeds one million groups")
+            ranked = ranked_result["rows"]
+            ranked.sort(key=lambda row: (row.get(top["metric"]) is None,
+                row.get(top["metric"]) if top["direction"] == "asc" else -(row.get(top["metric"]) or 0), str(row.get(top["dimension"]))))
+            selected = [row[top["dimension"]] for row in ranked[:top["k"]]]
+            rows = [row for row in rows if row.get(top["dimension"]) in selected]
+            top_metadata = {**top, "selected_members": selected, "ranking_scope": "full_requested_time_range"}
+        for condition in arguments.get("having", []):
+            op, target = condition["op"], condition["value"]
+            def keep(row):
+                value = row.get(condition["field"])
+                if value is None: return False
+                if op == "between": return isinstance(target, list) and len(target) == 2 and target[0] <= value <= target[1]
+                return {"eq": value == target, "neq": value != target, "gt": value > target, "gte": value >= target,
+                        "lt": value < target, "lte": value <= target}.get(op, False)
+            rows = [row for row in rows if keep(row)]
+        sort = arguments.get("sort")
+        if sort:
+            field = sort["field"]
+            rows.sort(key=lambda row: (row.get(field) is None, row.get(field) if row.get(field) is not None else 0),
+                      reverse=sort["direction"] == "desc")
+        limit = arguments.get("limit", 100); truncated = len(rows) > limit; rows = rows[:limit]
+        row_counts = [counts_by_key[tuple(row.get(k) for k in keys)] for row in rows]
+        row_eligible_counts = [eligible_by_key[tuple(row.get(k) for k in keys)] for row in rows]
+        for row in rows:
+            for metric in set(internal_metrics) - metric_names: row.pop(metric, None)
+        columns = self._columns([*keys, *arguments["metrics"]]); columns.update({k: v for k, v in measured["columns"].items() if k not in keys})
+        return {"success": True, "dataset_version": self.version, "result_kind": "aggregate", "rows": rows,
+            "columns": columns, "truncated": truncated,
+            "metadata": {**measured["metadata"], "row_valid_counts": row_counts,
+                "row_eligible_counts": row_eligible_counts,
+                "top_k": top_metadata,
+                "quantile_rules": quantile_rules or measured["metadata"].get("quantile_rules", []),
+                "metric_denominators": {m: self.metrics.METRIC_INDEX[m]["denominator"] for m in arguments["metrics"]}}}
 
     def execute(self, name, arguments, scope=None):
         if self._closed:
             raise ValueError("Olist dataset is closed")
         if scope is not None and not isinstance(scope, list):
             raise ValueError("Scope must be a list of filters")
-        normalized_filters = self.common.normalize_filters([*(scope or []), *arguments.get("filters", [])], self.schema.FIELD_INDEX)
-        self.common.validate_filter_conflicts(normalized_filters)
+        all_filters = [*(scope or []), *arguments.get("filters", [])]
+        if any(self.predicate.is_or(item) or isinstance(item, dict) and item.get("op") == "quantile_between" for item in all_filters):
+            self.predicate.normalize(all_filters, self.schema.FIELD_INDEX)
+        else:
+            normalized_filters = self.common.normalize_filters(all_filters, self.schema.FIELD_INDEX)
+            self.common.validate_filter_conflicts(normalized_filters)
         self.common.validate_time_range(arguments.get("time_range"), self.schema.FIELD_INDEX)
+        if name in {"aggregate", "compare_segments", "compare_periods"}:
+            if len(arguments.get("metrics", [])) + len(arguments.get("measures", [])) > 4:
+                raise ValueError("INVALID_MEASURE: fixed metrics and measures may total at most four")
         if name == "distribution":
-            return {**self.distributions.execute_distribution(self.con, arguments, scope,
-                {"common": self.common, "fields": self.schema.FIELD_INDEX}), "dataset_version": self.version}
+            if any(item.get("op") == "quantile_between" for item in (scope or []) if isinstance(item, dict)):
+                raise ValueError("INVALID_FILTER_VALUE: quantile rules are local-only")
+            resolved, rules = self.measure_queries.resolve_quantile_filters(self.con, arguments["unit"],
+                [*(scope or []), *arguments.get("filters", [])], arguments.get("time_range"),
+                {"predicate": self.predicate, "fields": self.schema.FIELD_INDEX})
+            local = deepcopy(arguments); local["filters"] = resolved; scope = []
+            result = self.distributions.execute_distribution(self.con, local, scope,
+                {"common": self.common, "fields": self.schema.FIELD_INDEX})
+            result["metadata"]["quantile_rules"] = rules
+            return {**result, "dataset_version": self.version}
         if name == "relationship":
-            return {**self.relationships.execute_relationship(self.con, arguments, scope,
-                {"common": self.common, "fields": self.schema.FIELD_INDEX}), "dataset_version": self.version}
+            if any(item.get("op") == "quantile_between" for item in (scope or []) if isinstance(item, dict)):
+                raise ValueError("INVALID_FILTER_VALUE: quantile rules are local-only")
+            resolved, rules = self.measure_queries.resolve_quantile_filters(self.con, arguments["unit"],
+                [*(scope or []), *arguments.get("filters", [])], arguments.get("time_range"),
+                {"predicate": self.predicate, "fields": self.schema.FIELD_INDEX})
+            local = deepcopy(arguments); local["filters"] = resolved; scope = []
+            result = self.relationships.execute_relationship(self.con, local, scope,
+                {"common": self.common, "fields": self.schema.FIELD_INDEX})
+            result["metadata"]["quantile_rules"] = rules
+            return {**result, "dataset_version": self.version}
+        if name == "compare_periods":
+            return {**self.periods.execute(self.con, arguments, scope, {"queries": self.queries,
+                "measure_queries": self.measure_queries, "predicate": self.predicate, "fields": self.schema.FIELD_INDEX,
+                "metrics": self.metrics.METRIC_INDEX, "columns": self._columns}), "dataset_version": self.version}
+        fixed_control = any(item.get("field") in self.metrics.METRIC_INDEX for item in arguments.get("having", []))
+        fixed_control = fixed_control or arguments.get("sort", {}).get("field") in self.metrics.METRIC_INDEX
+        fixed_control = fixed_control or arguments.get("top_k", {}).get("metric") in self.metrics.METRIC_INDEX
+        if name == "aggregate" and arguments.get("measures") and (arguments.get("metrics") or fixed_control):
+            return self._execute_mixed_aggregate(arguments, scope)
+        if name == "aggregate" and arguments.get("measures") and not arguments.get("metrics"):
+            measured = self.measure_queries.execute(self.con, arguments, scope,
+                {"fields": self.schema.FIELD_INDEX, "predicate": self.predicate})
+            return {"success": True, "dataset_version": self.version, "result_kind": "aggregate",
+                    **measured}
         if name == "aggregate":
             query = self.queries.build_aggregate(arguments, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX,
                                                  include_valid_counts=True)
         elif name == "compare_segments":
             if arguments.get("normalization", "none") != "none" and not arguments.get("breakdown"):
                 raise ValueError("INCOMPATIBLE_GRAIN: normalization requires a breakdown")
-            if arguments.get("breakdown") or any("filters" in segment for segment in arguments["segments"]):
+            if arguments.get("breakdown") or arguments.get("comparison") or any("filters" in segment for segment in arguments["segments"]):
                 return self._execute_typed_segments(arguments, scope)
             query = self.queries.build_segments(arguments, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX,
                                                 include_valid_counts=True)
@@ -582,7 +910,7 @@ class Olist:
             rank_sql, rank_params, _, _ = self.queries.build_aggregate(rank_args, scope, self.schema.FIELD_INDEX, self.metrics.METRIC_INDEX)
             ranks = self.con.execute(rank_sql, rank_params).fetchall()
             top_metadata = {**top, "selected_members": [row[0] for row in ranks[:top["k"]]], "ranking_scope": "full_requested_time_range"}
-        return {"success": True, "dataset_version": self.version,
+        result = {"success": True, "dataset_version": self.version,
                 "rows": mapped_rows, "columns": self._columns(visible_names), "truncated": len(raw_rows) > limit,
                 "result_kind": "aggregate" if name == "aggregate" else "segments",
                 "metadata": {"observation_unit": "order", "effective_filters": effective,
@@ -593,6 +921,16 @@ class Olist:
                              "row_valid_counts": row_valid_counts,
                              "metric_denominators": {metric: self.metrics.METRIC_INDEX[metric]["denominator"]
                                                      for metric in arguments["metrics"]}}}
+        if name == "aggregate" and arguments.get("measures"):
+            measured = self.measure_queries.execute(self.con, arguments, scope,
+                {"fields": self.schema.FIELD_INDEX, "predicate": self.predicate})
+            keys = arguments.get("group_by", [])
+            by_key = {tuple(row.get(key) for key in keys): row for row in measured["rows"]}
+            for row in result["rows"]:
+                row.update({k: v for k, v in by_key.get(tuple(row.get(key) for key in keys), {}).items() if k not in keys})
+            result["columns"].update({k: v for k, v in measured["columns"].items() if k not in keys})
+            result["metadata"].update({k: v for k, v in measured["metadata"].items() if k.startswith("measure_") or k == "quantile_rules"})
+        return result
 
     def close(self):
         if not self._closed:

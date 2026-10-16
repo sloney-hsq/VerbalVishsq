@@ -110,6 +110,12 @@ def validate_filter_conflicts(filters):
 
 
 def effective_filters(filters, field_index):
+    if globals().get("PREDICATE") is not None and any(PREDICATE.is_or(item) for item in filters):
+        normalized = PREDICATE.normalize(filters, field_index)
+        default_applied = not any(not PREDICATE.is_or(item) and item["field"] == "order_status" for item in normalized)
+        if default_applied:
+            normalized = [{"field": "order_status", "op": "eq", "value": "delivered"}, *normalized]
+        return normalized, default_applied
     normalized = normalize_filters(filters, field_index)
     validate_filter_conflicts(normalized)
     default_applied = not any(item["field"] == "order_status" for item in normalized)
@@ -135,6 +141,10 @@ def validate_time_range(value, field_index):
 
 def observation_query(unit, fields, group_by, filters, time_range, field_index):
     """Select only registered observation columns; order rows survive item joins once."""
+    if globals().get("PREDICATE") is not None:
+        groups = [group_by] if group_by else []
+        sql, params, _ = PREDICATE.observation_sql(unit, fields, groups, filters, time_range, field_index)
+        return sql, params
     if unit not in {"order", "item"}:
         raise ValueError("INCOMPATIBLE_GRAIN: unknown observation unit")
     for field in fields:

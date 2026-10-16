@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "study_id": "verbalvis-olist-study-task-pool",
+  "dataset_id": "olist",
+  "pool_version": "1.0",
+  "status": "pilot_pool_not_allocated",
+  "tasks": [
+    {"task_id": "regional-delivery-risk", "prompt": "识别配送风险较高且业务量足够的地区，检查结论在排除极端值和改变时间范围后是否仍成立。"},
+    {"task_id": "delivery-period-change", "prompt": "比较两个明确时期的配送表现，区分真实时期差异与日期覆盖或业务构成变化。"},
+    {"task_id": "review-delivery-association", "prompt": "调查低评分与配送问题的关联，比较清晰参考组，并检查阈值或地区范围变化是否改变结论。"},
+    {"task_id": "freight-definition-robustness", "prompt": "找出运费负担较高的商品类别，判断结论在不同统计口径下是否保持。"},
+    {"task_id": "freight-attribute-association", "prompt": "调查运费差异与商品重量、体积、价格的关系，说明观察到的关系在哪些情况下不成立。"},
+    {"task_id": "seller-delivery-stability", "prompt": "在可比较的业务范围内找出值得调查的卖家，检查结论是否受订单量或极端订单影响。"}
+  ]
+}

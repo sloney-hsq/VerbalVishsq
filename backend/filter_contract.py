@@ -22,11 +22,31 @@ def _valid(value, entry):
     return isinstance(value, str) if kind in {"ordinal", "nominal"} else False
 
 
-def normalize_filters(filters, field_index):
+def normalize_filters(filters, field_index, _nested=False):
     if not isinstance(filters, list):
         raise ValueError("INVALID_FILTER_VALUE: filters must be an array")
+    if not _nested and len(filters) > 20:
+        raise ValueError("INVALID_FILTER_VALUE: filters exceed 20 top-level clauses")
     normalized = []
     for item in filters:
+        if isinstance(item, dict) and item.get("op") == "or":
+            if _nested:
+                raise ValueError("INVALID_FILTER_VALUE: nested OR is not allowed")
+            if set(item) != {"id", "op", "branches"} or not isinstance(item["id"], str):
+                raise ValueError("INVALID_FILTER_VALUE: invalid OR group")
+            branches = item["branches"]
+            if not isinstance(branches, list) or not 2 <= len(branches) <= 8:
+                raise ValueError("INVALID_FILTER_VALUE: invalid OR branches")
+            normalized_branches = []
+            for branch in branches:
+                if not isinstance(branch, dict) or set(branch) != {"all"} or not isinstance(branch["all"], list) or not 1 <= len(branch["all"]) <= 8:
+                    raise ValueError("INVALID_FILTER_VALUE: invalid OR branch")
+                leaves = normalize_filters(branch["all"], field_index, True)
+                if any(leaf.get("field") == "order_status" for leaf in leaves):
+                    raise ValueError("INVALID_FILTER_VALUE: order_status is not allowed inside OR")
+                normalized_branches.append({"all": leaves})
+            normalized.append({"id": item["id"], "op": "or", "branches": normalized_branches})
+            continue
         if not isinstance(item, dict) or set(item) - {"id", "field", "op", "value"}:
             raise ValueError("INVALID_FILTER_VALUE: invalid filter shape")
         field, op = item.get("field"), item.get("op")
@@ -55,12 +75,21 @@ def normalize_filters(filters, field_index):
         if "id" in item:
             result["id"] = item["id"]
         normalized.append(result)
+    if not _nested:
+        leaf_count = sum(sum(len(branch["all"]) for branch in item["branches"]) if item.get("op") == "or" else 1
+                         for item in normalized)
+        if leaf_count > 64:
+            raise ValueError("INVALID_FILTER_VALUE: filters exceed 64 leaves")
     return normalized
 
 
 def validate_filter_conflicts(filters):
     by_field = {}
     for item in filters:
+        if item.get("op") == "or":
+            for branch in item["branches"]:
+                validate_filter_conflicts(branch["all"])
+            continue
         by_field.setdefault(item["field"], []).append(item)
     for conditions in by_field.values():
         equals = [item["value"] for item in conditions if item["op"] == "eq"]

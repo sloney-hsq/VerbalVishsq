@@ -154,8 +154,8 @@ def test_standalone_loader_exposes_only_two_exploration_tools_and_cleans_modules
     ds = _load(olist_csvs)
     added = {name for name in set(sys.modules) - before if name.startswith("trusted_dataset_")}
     try:
-        assert [definition["name"] for definition in ds.definitions] == ["aggregate", "compare_segments", "distribution", "relationship"]
-        assert len(added) == 7  # interface plus six file-loaded sibling modules
+        assert [definition["name"] for definition in ds.definitions] == ["aggregate", "compare_segments", "distribution", "relationship", "compare_periods"]
+        assert len(added) == 10  # interface plus nine file-loaded sibling modules
         assert ds.description["default_scope"] == {"order_status": "delivered"}
     finally:
         ds.close()

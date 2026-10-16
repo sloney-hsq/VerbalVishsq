@@ -25,8 +25,7 @@ _CHART = {'source': _SOURCE, 'chart_type': {'enum': ['bar', 'line', 'scatter']},
           'title': {'type': 'string'}}
 _FILTER = _object({'field': _STRING, 'op': _STRING,
                    'value': {}}, ('field', 'op'))
-_FILTER_EDIT = _object({'id': _STRING, 'field': _STRING, 'op': _STRING,
-                        'value': {}}, ('field', 'op'))
+_FILTER_EDIT = {'type': 'object'}
 _ENCODING = _object({key: (_STRING if key != 'tooltip' else {'type': 'array', 'items': _STRING})
                      for key in ('x', 'y', 'color', 'size', 'facet', 'tooltip')})
 _VISUAL = _object({'type': {'enum': ['bar', 'line', 'scatter', 'heatmap', 'histogram', 'boxplot']},
@@ -45,9 +44,11 @@ _VISUAL_PATCH = _object({'set': _object(_VISUAL_SET),
                          'unset': {'type': 'array', 'items': {'enum': _VISUAL_PATHS}, 'uniqueItems': True}})
 _FILTER_CHANGES = _object({'upsert': {'type': 'array', 'items': _FILTER_EDIT},
                            'remove': {'type': 'array', 'items': _STRING, 'uniqueItems': True}})
+_MEASURE_CHANGES = _object({'upsert': {'type': 'array', 'items': {'type': 'object'}},
+                            'remove': {'type': 'array', 'items': _STRING, 'uniqueItems': True}})
 _ANALYSIS_PATCH = {'oneOf': [
     _object({'set': {'type': 'object'}, 'unset': {'type': 'array', 'items': _STRING, 'uniqueItems': True},
-             'filter_changes': _FILTER_CHANGES}),
+             'filter_changes': _FILTER_CHANGES, 'measure_changes': _MEASURE_CHANGES}),
     _object({'replace_source': _SOURCE, 'inherit_scope': {'const': True}}, ('replace_source', 'inherit_scope'))]}
 _CREATE = _object({**_CHART, 'visual': _VISUAL, 'activate': {'type': 'boolean'}}, ('source',))
 _CREATE['anyOf'] = [{'required': ['visual']}, {'required': ['chart_type', 'x', 'y']}]
@@ -68,7 +69,7 @@ _PUBLIC = [
     ('fork_chart', 'Copy a chart with snapshot or linked scope.', _FORK),
     ('set_selection', 'Apply or clear a marked source selection on explicit target views.', _SELECTION),
     ('delete_chart', 'Delete a chart by its view ID.', _object({'view_id': _STRING}, ('view_id',))),
-    ('set_analysis_filters', 'Replace shared filters and recompute every chart atomically.', _object({'filters': {'type': 'array', 'items': _FILTER}}, ('filters',))),
+    ('set_analysis_filters', 'Replace shared filters and recompute every chart atomically.', _object({'filters': {'type': 'array', 'items': {'type': 'object'}}}, ('filters',))),
     ('highlight_chart', 'Highlight one chart or clear highlighting with a null view_id.', _object({'view_id': {'type': ['string', 'null']}, 'element': {'type': ['object', 'null']}, 'dim_others': {'type': 'boolean'}}, ('view_id',))),
     ('inspect_dashboard', 'Inspect dashboard summary or bounded view data.', _object({'view_id': _STRING, 'include_data': {'type': 'boolean'}})),
     ('undo_dashboard', 'Undo the last committed change. Must be the only mutation in the batch.', _object()),
@@ -140,7 +141,7 @@ class Toolbox:
                 draft.dirty = dirty
             message = str(exc)
             code = message.split(':', 1)[0]
-            if code not in {'INVALID_FILTER_VALUE', 'FILTER_CONFLICT', 'INCOMPATIBLE_GRAIN',
+            if code not in {'INVALID_FILTER_VALUE', 'INVALID_MEASURE', 'INVALID_COMPARISON', 'INCOMPATIBLE_PERIODS', 'EMPTY_REFERENCE_POPULATION', 'FILTER_CONFLICT', 'INCOMPATIBLE_GRAIN',
                             'INCOMPATIBLE_ENCODING', 'RESULT_TOO_LARGE', 'INVALID_SELECTION', 'STALE_SOURCE_VIEW'}:
                 code = 'tool_error'
             error = {'code': code, 'message': message}
@@ -257,6 +258,33 @@ class Toolbox:
         clone['highlighted'] = False
         if mode == 'snapshot':
             clone['selection_filters'] = {}
+            rules = clone.get('metadata', {}).get('quantile_rules', [])
+            if rules:
+                filters = clone['source']['arguments'].get('filters', [])
+                remaining, materialized = list(rules), []
+                kept = []
+                for item in filters:
+                    if item.get('op') != 'quantile_between':
+                        kept.append(item); continue
+                    match = next((rule for rule in remaining if rule.get('field') == item.get('field')
+                                  and rule.get('probabilities') == item.get('value')), None)
+                    if match is None:
+                        raise ValueError('INVALID_FILTER_VALUE: quantile provenance does not match source rule')
+                    remaining.remove(match)
+                    materialized.append((item, match))
+                if remaining:
+                    raise ValueError('INVALID_FILTER_VALUE: unresolved quantile metadata during snapshot')
+                filters = kept
+                for source_rule, rule in materialized:
+                    rule = {**rule, 'id': source_rule.get('id')}
+                    for side, op in (('lower', 'gte'), ('upper', 'lte')):
+                        if side in rule.get('bounds', {}):
+                            filters.append({'id': uuid.uuid4().hex, 'field': rule['field'], 'op': op,
+                                'value': rule['bounds'][side]})
+                # provenance is stored outside executable filter shapes
+                clone['source']['arguments']['filters'] = filters
+                clone.setdefault('metadata', {})['materialized_quantile_rules'] = [
+                    {**rule, 'id': source_rule.get('id')} for source_rule, rule in materialized]
         clone['selection_highlights'] = {}
         clone['view_revision'] = 1
         clone['scope_mode'] = mode
@@ -302,6 +330,8 @@ class Toolbox:
                     raise ValueError('Ambiguous shared filter field metadata: ' + field)
                 metadata[field] = definition
         for item in filters:
+            if item.get('op') == 'or':
+                raise ValueError('INVALID_FILTER_VALUE: bounded OR is not declared by this dataset')
             if item['field'] not in fields or item['op'] not in operators:
                 raise ValueError('Unsupported shared filter field or operator')
             if item['op'] != 'is_null' and 'value' not in item:
