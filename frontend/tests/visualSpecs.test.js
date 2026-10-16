@@ -178,3 +178,15 @@ test('facets use responsive columns and child dimensions without fit autosize', 
   assert.equal(wide.autosize.type,'pad');
   assert.equal(Object.hasOwn(wide.spec,'autosize'),false);
 });
+
+test('period and quantile result tooltips include declared context fields', () => {
+  const periods = view('line',{x:'bucket_index',y:'metric',color:'period'},
+    [{bucket_index:0,metric:4,period:'Before',bucket_start:'2025-01-01',bucket_end:'2025-02-01',bucket_present:true,record_count:12}],
+    {bucket_index:{type:'quantitative'},metric:{type:'quantitative'},period:{type:'nominal'},bucket_start:{type:'temporal'},bucket_end:{type:'temporal'},bucket_present:{type:'nominal'},record_count:{type:'quantitative',unit:'count'}},'periods');
+  assert.deepEqual(createSpec(periods).encoding.tooltip.map(item => item.field),
+    ['bucket_index','metric','period','bucket_start','bucket_end','bucket_present','record_count']);
+  const quantiles = view('line',{x:'quantile',y:'value'},[{quantile:.9,value:4,valid_count:12,missing_count:2}],
+    {quantile:{type:'quantitative'},value:{type:'quantitative'},valid_count:{type:'quantitative',unit:'count'},missing_count:{type:'quantitative',unit:'count'}},'quantiles');
+  assert.deepEqual(createSpec(quantiles).encoding.tooltip.map(item => item.field),
+    ['quantile','value','valid_count','missing_count']);
+});

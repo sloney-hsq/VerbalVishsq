@@ -32,6 +32,10 @@
       </div>
       <h2>{{ view.title }}</h2>
     </header>
+    <details v-if="metadataNotices.length" class="analysis-notices">
+      <summary>{{ metadataNotices.length }} analysis {{ metadataNotices.length === 1 ? 'notice' : 'notices' }}</summary>
+      <ul><li v-for="(notice,index) in metadataNotices" :key="index">{{ notice }}</li></ul>
+    </details>
     <nav v-if="layout.heatmap.enabled" class="heatmap-pages" aria-label="Heatmap pages">
       <button type="button" :disabled="presentation.mode === 'all' || presentation.pageIndex === 0" @click="previousPage">Previous</button>
       <span v-if="presentation.mode === 'paged'">Page {{ presentation.pageIndex + 1 }} of {{ presentation.pageCount }}</span>
@@ -82,6 +86,12 @@ const categoryRange = computed(() => {
   const start = total ? presentation.value.pageIndex * layout.value.heatmap.pageSize + 1 : 0;
   const end = Math.min(total,start + layout.value.heatmap.pageSize - 1);
   return `${start}–${end} of ${total} categories`;
+});
+const metadataNotices = computed(() => {
+  const warnings = normalizeNotices(props.view.metadata?.warnings);
+  const suppressed = normalizeNotices(props.view.metadata?.comparison_suppressed_reasons)
+    .map(reason => `Comparison suppressed: ${humanizeNotice(reason)}`);
+  return [...warnings.map(humanizeNotice),...suppressed];
 });
 
 const activeHighlightElement = computed(() => (
@@ -172,6 +182,19 @@ async function performRender(generation) {
 function previousPage() { pageIndex.value = Math.max(0,pageIndex.value - 1); }
 function nextPage() { pageIndex.value = Math.min(presentation.value.pageCount - 1,pageIndex.value + 1); }
 function toggleAll() { heatmapMode.value = heatmapMode.value === 'all' ? 'paged' : 'all'; }
+
+function normalizeNotices(value) {
+  if (value === null || value === undefined || value === '') return [];
+  if (Array.isArray(value)) return value.flatMap(normalizeNotices);
+  if (typeof value === 'object') return Object.entries(value).flatMap(([key,item]) =>
+    normalizeNotices(item).map(detail => `${key}: ${detail}`));
+  return [String(value)];
+}
+
+function humanizeNotice(value) {
+  const text = String(value).replaceAll('_',' ');
+  return text.replace(/^./,letter => letter.toUpperCase());
+}
 
 function loadVegaEmbed() {
   if (!vegaEmbedPromise) {
@@ -284,6 +307,10 @@ function clearChart() {
 .heatmap-pages button { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; background:#f8fafc; color:#334155; cursor:pointer; }
 .heatmap-pages button:disabled { cursor:not-allowed; opacity:.45; }
 .heatmap-pages button[aria-pressed="true"] { border-color:#93c5fd; background:#eff6ff; color:#1d4ed8; }
+
+.analysis-notices { margin:6px 0; padding:6px 8px; border:1px solid #f0cf78; border-radius:7px; background:#fffbeb; color:#78550a; font-size:11px; }
+.analysis-notices summary { cursor:pointer; font-weight:700; }
+.analysis-notices ul { margin:6px 0 0; padding-left:18px; }
 
 @media (max-width: 560px) {
   .chart-card__header { grid-template-columns: minmax(0,1fr); }

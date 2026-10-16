@@ -42,8 +42,12 @@ function base(view, presentation = null) {
 }
 
 function tooltip(view, fields) {
+  const contextFields = view.result_kind === 'periods'
+    ? ['bucket_start','bucket_end','bucket_present','record_count']
+    : view.result_kind === 'quantiles' ? ['valid_count','missing_count'] : [];
   const distinct = [...new Set([...fields, ...(view.visual?.encoding?.tooltip || []),
-    ...(view.columns?.segment_denominator ? ['segment_denominator'] : [])].filter(field => field in (view.columns || {})))];
+    ...contextFields, ...(view.columns?.segment_denominator ? ['segment_denominator'] : [])]
+    .filter(field => field in (view.columns || {})))];
   const result = distinct.map(field => encoding(view,field,'tooltip'));
   if (view.metadata?.row_valid_counts) result.push({field:'__valid_count',type:'quantitative',title:'Valid observations',format:',.0f'});
   return result;

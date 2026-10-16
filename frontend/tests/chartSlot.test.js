@@ -56,3 +56,19 @@ test('independent facet scales are disclosed in card metadata', async (t) => {
   app.use(createPinia());
   assert.match(await renderToString(app),/Independent scales/);
 });
+
+test('analysis warnings and suppressed comparisons are expandable', async (t) => {
+  const vite = await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+  t.after(() => vite.close());
+  const {default:ChartSlot} = await vite.ssrLoadModule('/src/components/ChartSlot.vue');
+  const view = {id:'period',title:'Period',chart_type:'line',data:[],
+    visual:{type:'line',encoding:{x:'bucket',y:'score'}},columns:{bucket:{type:'quantitative'},score:{type:'quantitative'}},
+    metadata:{warnings:['Outside observed range'],comparison_suppressed_reasons:'outside_observed_date_extent'}};
+  const app = createSSRApp({render:() => h(ChartSlot,{view,availableWidth:920})});
+  app.use(createPinia());
+  const html = await renderToString(app);
+  assert.match(html,/<details[^>]*class="analysis-notices"/);
+  assert.match(html,/2 analysis notices/);
+  assert.match(html,/Outside observed range/);
+  assert.match(html,/Comparison suppressed: Outside observed date extent/);
+});
