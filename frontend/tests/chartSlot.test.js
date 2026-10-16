@@ -44,3 +44,15 @@ test('high-cardinality heatmaps expose accessible paging without mutating the vi
   assert.match(html,/View all/);
   assert.equal(view.data.length,30);
 });
+
+test('independent facet scales are disclosed in card metadata', async (t) => {
+  const vite = await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+  t.after(() => vite.close());
+  const {default:ChartSlot} = await vite.ssrLoadModule('/src/components/ChartSlot.vue');
+  const view = {id:'facet',title:'Facet',chart_type:'bar',data:[],
+    visual:{type:'bar',encoding:{x:'group',y:'score',facet:'panel'},scales:{resolve:'independent'}},
+    columns:{group:{type:'nominal'},score:{type:'quantitative'},panel:{type:'nominal'}}};
+  const app = createSSRApp({render:() => h(ChartSlot,{view,availableWidth:920})});
+  app.use(createPinia());
+  assert.match(await renderToString(app),/Independent scales/);
+});

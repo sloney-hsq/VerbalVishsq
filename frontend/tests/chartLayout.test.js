@@ -46,3 +46,22 @@ test('all mode retains every row and narrow layouts use one dashboard column', (
   assert.equal(chartLayoutForView(view,879).columnSpan,1);
   assert.doesNotThrow(() => heatmapPresentation({...view,data:[]},{pageIndex:99,mode:'paged'},920));
 });
+
+test('facets wrap two columns on wide containers and one on narrow containers', () => {
+  const view = heatmap(2);
+  view.chart_type = 'bar';
+  view.visual = {type:'bar',encoding:{x:'state',y:'score',facet:'category'}};
+  assert.equal(chartLayoutForView(view,920).facetColumns,2);
+  assert.equal(chartLayoutForView(view,879).facetColumns,1);
+});
+
+test('long horizontal bars preserve readable rows inside a tall scroll tier', () => {
+  const data = Array.from({length:55},(_,index) => ({category:`Category ${index}`,score:index}));
+  const view = {chart_type:'bar',data,visual:{type:'bar',encoding:{x:'score',y:'category'}},
+    columns:{score:{type:'quantitative'},category:{type:'nominal'}}};
+  const layout = chartLayoutForView(view,920);
+  assert.equal(layout.tier,'tall');
+  assert.equal(layout.scrollY,true);
+  assert.equal(layout.plotHeight,1052);
+  assert.equal(layout.cardHeight,600);
+});

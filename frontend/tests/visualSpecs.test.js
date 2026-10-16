@@ -167,3 +167,14 @@ test('paged heatmap validity metadata follows source rows and the color measure'
   assert.deepEqual(spec.data.values.map(row => row.__valid_count),Array.from({length:10},(_,index) => 120 + index));
   assert.ok(spec.encoding.tooltip.some(item => item.field === '__valid_count'));
 });
+
+test('facets use responsive columns and child dimensions without fit autosize', () => {
+  const target = view('bar',{x:'cohort',y:'score',facet:'period'},
+    [{cohort:'A',period:'P1',score:1}],{...cols,period:{type:'nominal'}});
+  const wide = createSpec(target,null,{plotHeight:300,facetColumns:2});
+  const narrow = createSpec(target,null,{plotHeight:300,facetColumns:1});
+  assert.equal(wide.columns,2);
+  assert.equal(narrow.columns,1);
+  assert.equal(wide.autosize.type,'pad');
+  assert.equal(Object.hasOwn(wide.spec,'autosize'),false);
+});

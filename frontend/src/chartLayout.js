@@ -27,15 +27,21 @@ export function chartLayoutForView(view, availableWidth = 0) {
   const isCategoryHeatmap = view?.chart_type === 'heatmap' && view?.result_kind !== 'binned_2d' && yDiscrete;
   const yDomain = isCategoryHeatmap ? orderedDomain(view,yField) : [];
   const paging = isCategoryHeatmap && yDomain.length > HEATMAP_PAGE_THRESHOLD;
-  const dense = paging || Boolean(encoding.facet) || isMultiSeriesLine(view);
+  const isFacet = Boolean(encoding.facet);
+  const horizontalBarRows = view?.chart_type === 'bar' && view?.columns?.[xField]?.type === 'quantitative'
+    && DISCRETE_TYPES.has(view?.columns?.[yField]?.type) ? orderedDomain(view,yField).length : 0;
+  const tallBar = horizontalBarRows > 20;
+  const dense = paging || isFacet || isMultiSeriesLine(view);
   const twoColumns = Number(availableWidth) >= 880;
   const visibleRows = paging ? HEATMAP_PAGE_SIZE : Math.max(1,yDomain.length);
   return {
     columnSpan: dense && twoColumns ? 2 : 1,
-    tier: paging ? 'matrix' : dense ? 'standard' : 'compact',
-    cardHeight: paging ? 600 : dense ? 420 : 360,
-    plotHeight: isCategoryHeatmap ? 72 + visibleRows * 22 : DEFAULT_CHART_HEIGHT,
+    tier: paging ? 'matrix' : tallBar ? 'tall' : dense ? 'standard' : 'compact',
+    cardHeight: paging || tallBar ? 600 : dense ? 420 : 360,
+    plotHeight: isCategoryHeatmap ? 72 + visibleRows * 22 : tallBar ? 62 + horizontalBarRows * 18 : DEFAULT_CHART_HEIGHT,
     plotMinWidth: isCategoryHeatmap ? Math.max(420, orderedDomain(view,xField).length * 44 + 260) : 0,
+    facetColumns:isFacet && twoColumns ? 2 : 1,
+    scrollY:tallBar,
     heatmap:{enabled:paging,pageSize:HEATMAP_PAGE_SIZE,pageCount:paging ? Math.ceil(yDomain.length / HEATMAP_PAGE_SIZE) : 1,
       field:yField,domain:yDomain},
   };

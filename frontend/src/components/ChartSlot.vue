@@ -24,6 +24,7 @@
         <span v-if="Object.keys(view.selection_filters || {}).length">Filtered by selection</span>
         <span v-if="Object.keys(view.selection_source_status || {}).length">Source removed</span>
         <span v-if="hasSharedOrder">Shared order</span>
+        <span v-if="view.visual?.scales?.resolve === 'independent'">Independent scales</span>
         <span v-if="view.focus_x">Focus {{ view.focus_x }}</span>
         <span v-if="resolvedHighlight" class="highlight-badge">
           {{ resolvedHighlight.label }}
@@ -111,7 +112,7 @@ const hasSharedOrder = computed(() => (
   props.view.order_contract?.verified === true
 ));
 const chartBodyStyle = computed(() => ({minHeight:`${Math.min(presentation.value.plotHeight,512)}px`,
-  maxHeight:presentation.value.mode === 'all' ? '560px' : 'none',
+  maxHeight:presentation.value.mode === 'all' ? '560px' : presentation.value.scrollY ? '520px' : 'none',
   '--plot-min-width':`${presentation.value.plotMinWidth || 0}px`}));
 
 watch(

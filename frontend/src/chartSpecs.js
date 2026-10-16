@@ -162,8 +162,10 @@ export function buildChartSpec(view, presentation = null) {
     delete facetSpec.spec.data;
     delete facetSpec.spec.width;
     delete facetSpec.spec.height;
+    delete facetSpec.spec.autosize;
     spec = {...base(view,presentation),data:transformedData,facet:facetSpec.facet,spec:facetSpec.spec};
     spec.autosize = {type:'pad',contains:'padding',resize:true};
+    spec.columns = presentation?.facetColumns || 1;
     spec.spec.width = 260;
     spec.spec.height = 220;
     if (visual.scales?.resolve === 'independent') spec.resolve = {scale:{y:'independent'}};
