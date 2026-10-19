@@ -1,0 +1,184 @@
+{
+  "aborted": 0,
+  "assignments": [
+    {
+      "answer_status": "submitted",
+      "assignment_id": "olist-voice-policy-between.P001",
+      "attempt_count": 1,
+      "condition": "revision_enabled",
+      "participant_id": "P001",
+      "status": "completed",
+      "task_id": "review-delivery-association",
+      "trial_id": "P001.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P002",
+      "attempt_count": 0,
+      "condition": "revision_enabled",
+      "participant_id": "P002",
+      "status": "missing",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P002.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P003",
+      "attempt_count": 0,
+      "condition": "revision_enabled",
+      "participant_id": "P003",
+      "status": "missing",
+      "task_id": "review-delivery-association",
+      "trial_id": "P003.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P004",
+      "attempt_count": 0,
+      "condition": "turn_taking",
+      "participant_id": "P004",
+      "status": "missing",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P004.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P005",
+      "attempt_count": 0,
+      "condition": "turn_taking",
+      "participant_id": "P005",
+      "status": "missing",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P005.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P006",
+      "attempt_count": 0,
+      "condition": "revision_enabled",
+      "participant_id": "P006",
+      "status": "missing",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P006.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P007",
+      "attempt_count": 0,
+      "condition": "turn_taking",
+      "participant_id": "P007",
+      "status": "missing",
+      "task_id": "review-delivery-association",
+      "trial_id": "P007.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P008",
+      "attempt_count": 0,
+      "condition": "revision_enabled",
+      "participant_id": "P008",
+      "status": "missing",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P008.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P009",
+      "attempt_count": 0,
+      "condition": "turn_taking",
+      "participant_id": "P009",
+      "status": "missing",
+      "task_id": "review-delivery-association",
+      "trial_id": "P009.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P010",
+      "attempt_count": 0,
+      "condition": "turn_taking",
+      "participant_id": "P010",
+      "status": "missing",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P010.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P011",
+      "attempt_count": 0,
+      "condition": "turn_taking",
+      "participant_id": "P011",
+      "status": "missing",
+      "task_id": "review-delivery-association",
+      "trial_id": "P011.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P012",
+      "attempt_count": 0,
+      "condition": "revision_enabled",
+      "participant_id": "P012",
+      "status": "missing",
+      "task_id": "review-delivery-association",
+      "trial_id": "P012.formal"
+    }
+  ],
+  "auditor_version": "1.0.0",
+  "completed": 1,
+  "diagnostics": [
+    {
+      "assignment_id": "olist-voice-policy-between.P002",
+      "code": "missing_assignment",
+      "participant_id": "P002"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P003",
+      "code": "missing_assignment",
+      "participant_id": "P003"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P004",
+      "code": "missing_assignment",
+      "participant_id": "P004"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P005",
+      "code": "missing_assignment",
+      "participant_id": "P005"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P006",
+      "code": "missing_assignment",
+      "participant_id": "P006"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P007",
+      "code": "missing_assignment",
+      "participant_id": "P007"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P008",
+      "code": "missing_assignment",
+      "participant_id": "P008"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P009",
+      "code": "missing_assignment",
+      "participant_id": "P009"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P010",
+      "code": "missing_assignment",
+      "participant_id": "P010"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P011",
+      "code": "missing_assignment",
+      "participant_id": "P011"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P012",
+      "code": "missing_assignment",
+      "participant_id": "P012"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P001",
+      "code": "missing_trace",
+      "session_id": "synthetic-session"
+    }
+  ],
+  "formal_attempts": 1,
+  "missing": 11,
+  "planned": 12,
+  "practice_attempts": 0,
+  "schema_version": 1,
+  "started": 1
+}

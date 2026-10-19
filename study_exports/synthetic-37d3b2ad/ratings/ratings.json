@@ -1,0 +1,19 @@
+{
+  "package": "ratings",
+  "records": [
+    {
+      "answer_status": "submitted",
+      "conclusion": "The evidence is mixed.",
+      "evidence_refs": [
+        {
+          "file": "artifacts/rating-164c8a4f092daf64-revision-1.json",
+          "revision": 1
+        }
+      ],
+      "limitations": "Association is not causation.",
+      "rating_id": "rating-164c8a4f092daf64",
+      "task_id": "review-delivery-association"
+    }
+  ],
+  "schema_version": 1
+}

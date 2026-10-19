@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "design": "between_subjects",
+  "study_id": "olist-voice-policy-between",
+  "study_version": "1.0",
+  "dataset_id": "olist",
+  "conditions": ["revision_enabled", "turn_taking"],
+  "limits": {
+    "exploration_limit_seconds": 600,
+    "answer_limit_seconds": 180,
+    "freeze_timeout_seconds": 15,
+    "evidence_limit_bytes": 52428800,
+    "answer_text_limit_chars": 8000
+  },
+  "consent": {
+    "transcript": "optional",
+    "analysis_evidence": "required",
+    "final_answer": "required"
+  },
+  "source_task_pool": {
+    "path": "experiments/olist_study_task_pool.json",
+    "sha256": "4d4f0a4cc842c0ff97bd11a7040fe33593bec0c2379a3d44d1168e467f110f09"
+  },
+  "tasks": [
+    {
+      "task_id": "review-delivery-association",
+      "title": "Do longer deliveries receive lower review scores?",
+      "prompt": "Imagine you are a customer-experience analyst responsible for deliveries to Sao Paulo (SP) and Rio de Janeiro (RJ). Your team is deciding whether delivery speed should be a priority for further investigation. A colleague proposes that orders taking longer to arrive tend to receive lower customer review scores. Using delivered orders purchased in 2017 and sent to SP or RJ, investigate the relationship between delivery time (days from purchase to delivery) and review score (1 to 5). Does the evidence support this hypothesis, and where does it need qualification? Present your conclusion with chart evidence and explain one limitation or alternative explanation. You may support, reject, or find insufficient evidence for the hypothesis.",
+      "prompt_sha256": "0b5c916717f4d878b5cb6455099ac887587229cf473f8e4ec775d000ab7ac00c"
+    },
+    {
+      "task_id": "freight-attribute-association",
+      "title": "Do heavier products have a higher freight share?",
+      "prompt": "Imagine you are a cost analyst responsible for deliveries to Sao Paulo (SP) and Rio de Janeiro (RJ). Your team wants to investigate why freight accounts for a large share of what customers pay for some products. A colleague proposes starting with heavy products, assuming that heavier products tend to have a higher freight share. Using items from delivered orders purchased in 2017 and sent to SP or RJ, investigate the relationship between product weight (kg) and item freight share, defined as freight divided by item price plus freight. Use items with a positive price. Does the evidence support prioritizing heavy products for this investigation? Present your conclusion with chart evidence and explain one limitation or alternative explanation. You may support, reject, or find insufficient evidence for the hypothesis.",
+      "prompt_sha256": "98efa3387dd1684de1f717c539ad899f2a62dfc990735a3c9e5c12631df92475"
+    }
+  ]
+}

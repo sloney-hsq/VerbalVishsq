@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: verbalvis-research
+Version: 0.1.0
+Summary: Dataset-adapted conversational visual analytics with revocable response authority
+Requires-Python: <3.12,>=3.11
+Requires-Dist: fastapi<1,>=0.115
+Requires-Dist: uvicorn[standard]<1,>=0.30
+Requires-Dist: websockets<16,>=15
+Requires-Dist: duckdb<2,>=1.2
+Requires-Dist: jsonschema<5,>=4.23
+Requires-Dist: anyio<5,>=4
+Requires-Dist: pytest<10,>=8
+Requires-Dist: httpx<1,>=0.27

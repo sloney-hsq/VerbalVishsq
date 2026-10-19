@@ -11,6 +11,7 @@ from .chart_contract import normalize_visual, validate_visual
 from .chart_patch import normalize_source_filters, execution_source, apply_analysis_patch, apply_visual_patch
 from .filter_contract import normalize_filters, validate_filter_conflicts
 from .selection import selection_filters, match_predicate
+from .view_references import chart_display_numbers
 
 
 def _object(properties=None, required=()):
@@ -202,6 +203,9 @@ class Toolbox:
 
     def _inspect_dashboard(self, args, draft):
         document = deepcopy(draft.document)
+        numbers = chart_display_numbers(document['views'])
+        for view in document['views']:
+            view['display_number'] = numbers[view['id']]
         if args.get('view_id'):
             selected = self._view(document, args['view_id'])
             document['views'] = [selected]

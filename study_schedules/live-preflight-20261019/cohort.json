@@ -1,0 +1,188 @@
+{
+  "algorithm_version": "task-block-randomization-v1",
+  "assignments": [
+    {
+      "assignment_id": "olist-voice-policy-between.P001",
+      "condition": "revision_enabled",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P001",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "review-delivery-association",
+      "trial_id": "P001.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P002",
+      "condition": "revision_enabled",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P002",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P002.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P003",
+      "condition": "revision_enabled",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P003",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "review-delivery-association",
+      "trial_id": "P003.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P004",
+      "condition": "turn_taking",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P004",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P004.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P005",
+      "condition": "turn_taking",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P005",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P005.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P006",
+      "condition": "revision_enabled",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P006",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P006.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P007",
+      "condition": "turn_taking",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P007",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "review-delivery-association",
+      "trial_id": "P007.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P008",
+      "condition": "revision_enabled",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P008",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P008.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P009",
+      "condition": "turn_taking",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P009",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "review-delivery-association",
+      "trial_id": "P009.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P010",
+      "condition": "turn_taking",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P010",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "freight-attribute-association",
+      "trial_id": "P010.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P011",
+      "condition": "turn_taking",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P011",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "review-delivery-association",
+      "trial_id": "P011.formal"
+    },
+    {
+      "assignment_id": "olist-voice-policy-between.P012",
+      "condition": "revision_enabled",
+      "dataset_id": "olist",
+      "is_practice": false,
+      "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+      "participant_id": "P012",
+      "study_id": "olist-voice-policy-between",
+      "study_version": "1.0",
+      "task_id": "review-delivery-association",
+      "trial_id": "P012.formal"
+    }
+  ],
+  "balance": {
+    "conditions": {
+      "revision_enabled": 6,
+      "turn_taking": 6
+    },
+    "participants": 12,
+    "task_condition": {
+      "freight-attribute-association|revision_enabled": 3,
+      "freight-attribute-association|turn_taking": 3,
+      "review-delivery-association|revision_enabled": 3,
+      "review-delivery-association|turn_taking": 3
+    },
+    "tasks": {
+      "freight-attribute-association": 6,
+      "review-delivery-association": 6
+    }
+  },
+  "dataset_id": "olist",
+  "manifest_sha256": "6edcbf62f4ab198d0f7c117b8bbc31531ff8c1476eb367f630acdb4ed576e992",
+  "python_version": "3.11.14",
+  "schedule_sha256": "222e7d08eda0fb827669523a1694c7f85322282d6c2f95687a642124b74b3c80",
+  "schema_version": 1,
+  "seed": 20261019,
+  "study_id": "olist-voice-policy-between",
+  "study_version": "1.0",
+  "tasks": [
+    {
+      "prompt": "Imagine you are a customer-experience analyst responsible for deliveries to Sao Paulo (SP) and Rio de Janeiro (RJ). Your team is deciding whether delivery speed should be a priority for further investigation. A colleague proposes that orders taking longer to arrive tend to receive lower customer review scores. Using delivered orders purchased in 2017 and sent to SP or RJ, investigate the relationship between delivery time (days from purchase to delivery) and review score (1 to 5). Does the evidence support this hypothesis, and where does it need qualification? Present your conclusion with chart evidence and explain one limitation or alternative explanation. You may support, reject, or find insufficient evidence for the hypothesis.",
+      "prompt_sha256": "0b5c916717f4d878b5cb6455099ac887587229cf473f8e4ec775d000ab7ac00c",
+      "task_id": "review-delivery-association",
+      "title": "Do longer deliveries receive lower review scores?"
+    },
+    {
+      "prompt": "Imagine you are a cost analyst responsible for deliveries to Sao Paulo (SP) and Rio de Janeiro (RJ). Your team wants to investigate why freight accounts for a large share of what customers pay for some products. A colleague proposes starting with heavy products, assuming that heavier products tend to have a higher freight share. Using items from delivered orders purchased in 2017 and sent to SP or RJ, investigate the relationship between product weight (kg) and item freight share, defined as freight divided by item price plus freight. Use items with a positive price. Does the evidence support prioritizing heavy products for this investigation? Present your conclusion with chart evidence and explain one limitation or alternative explanation. You may support, reject, or find insufficient evidence for the hypothesis.",
+      "prompt_sha256": "98efa3387dd1684de1f717c539ad899f2a62dfc990735a3c9e5c12631df92475",
+      "task_id": "freight-attribute-association",
+      "title": "Do heavier products have a higher freight share?"
+    }
+  ]
+}

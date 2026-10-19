@@ -4,9 +4,16 @@ import assert from "node:assert/strict";
 import {
   captureBlockedForPlaybackStop,
   conditionFromSearch,
+  studyVoiceControl,
   withExperimentContext,
   withStudyCondition,
 } from "../src/realtimePolicy.js";
+
+test('formal study voice controls depend on lifecycle, never condition identity', () => {
+  assert.deepEqual(studyVoiceControl({ phase:'exploring' }), { microphoneEnabled:true, stopEnabled:true });
+  assert.deepEqual(studyVoiceControl({ phase:'answering', freezeStatus:'pending' }), { microphoneEnabled:false, stopEnabled:false });
+  assert.deepEqual(studyVoiceControl({ phase:'answering', freezeStatus:'ready' }), { microphoneEnabled:false, stopEnabled:false });
+});
 
 test("speech overlap stops playback without blocking microphone capture", () => {
   assert.equal(captureBlockedForPlaybackStop("speech_overlap"), false);

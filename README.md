@@ -1,6 +1,6 @@
 # VerbalVis：可撤销响应事务与数据集接口化可视分析
 
-这是独立于旧系统的新实现。保留原 Vue 仪表盘、图表卡片、对话时间线与麦克风外观；后端重新划分为八个核心模块。**本仓库仅限私有协作；尚未获准公开发布。任何公开仓库、公开 issue、release、tag 或归档均须先完成 [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) 的全部门槛。**
+这是独立于旧系统的新实现。保留原 Vue 仪表盘、图表卡片、对话时间线与麦克风外观；后端重新划分为八个核心模块。**维护者于 2026-10-19 明确授权向 `sloney-hsq/VerbalVishsq` 的开发分支公开上传当前快照，仅排除 `backend/.env.example`，不覆盖 main。该授权不代表稳定发布或正式研究就绪；[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) 中未完成的验证与维护者事项仍未完成。**
 
 ## 项目做什么
 
@@ -8,9 +8,9 @@
 
 这里的泛化单位是 **数据文件 + 对应的 Python 接口文件**，不是承诺任何 CSV 上传后自动理解业务。接口负责数据语义、指标、SQL 和领域工具；运行时负责响应生命周期、事务提交和消息发送；前端按返回的字段元数据绘图。
 
-产品界面、图表文本、系统语音/文字回答及参与者任务材料统一使用英文，供国际评审与演示使用。后续代理遵循 [AGENTS.md](AGENTS.md)；用户原始转写和原始数据值保持原样。英文任务材料版本为 1.1，已有排程和历史会话不回写。
+产品界面、图表文本、系统语音/文字回答及参与者任务材料统一使用英文，供国际评审与演示使用。后续代理遵循 [AGENTS.md](AGENTS.md)；用户原始转写和原始数据值保持原样。当前任务池为 2.0；旧 pilot 1.1、已有排程和历史会话不回写。
 
-作者直接阅读[六任务与旧 pilot 中文手册](docs/author/study-tasks.zh-CN.md)，其中保留八个中文提示词、探索思路、工具和预演说法。工作台以 16:9 电脑屏幕为设计基准：1920×1080 优先，1366×768 兼容；美学与分析正确性要求同样写入代理原则。
+作者直接阅读[当前两任务与历史预演中文手册](docs/author/study-tasks.zh-CN.md)。当前[十二人实验设计](docs/superpowers/specs/2026-10-19-voice-policy-between-study-design.md)为组间对照：全双工语音和 turn-based 语音各 6 人，每人只做一道正式任务；每个条件内两题各 3 人，共 12 个计划 trial。[工程修改计划](docs/superpowers/plans/2026-10-19-voice-policy-between-study.md)对应的新研究链路已加入本地工作分支，验收记录见 PROGRESS；不能把旧交叉 pilot 排程直接用于这项研究。工作台以 16:9 电脑屏幕为设计基准：1920×1080 优先，1366×768 兼容。软件验证不替代真实语音预飞和研究冻结。
 
 已有两个不同接口：
 
@@ -38,6 +38,12 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
 打开 `http://127.0.0.1:8001`。默认使用教育接口。没有密钥时，HTTP、数据加载和界面仍可检查，但语音连接明确提示配置错误，**不会返回伪造模型结果**。
 
 设置 `DASHSCOPE_API_KEY` 环境变量后重启后端。其他可选环境变量见 `.env.example`；应用不会自动加载或复制旧系统的 `.env`。模型与 API endpoint 必须属于相同服务区域。
+
+Qwen 初始化采用精简的模型侧工具投影：嵌套 source 参数引用同一会话内的领域工具定义，服务端仍使用完整 schema 校验。数据描述只合并完全相同的重复索引；模型上下文明确省略已物化行，但保留来源、配置和分析警告。每条 provider 消息按实际 UTF-8 编码检查 256 KiB 上限；超大工具结果返回 `provider_result_too_large`，不撤销已经合法提交的图表，也不把截断结果当完整证据。累计视图或 metadata 仍可能超限，此时明确失败并提示缩小范围，不能保证无限长会话。
+
+2026-10-19 实测北京业务空间的 `qwen3.8-omni-flash-realtime` 可确认手动响应控制，使用 `Tina` 可生成语音；本地旧音色 `Ethan` 在生成阶段被拒绝，不能以 `session.updated` 代替实际音频验证。真实服务与合成音频已覆盖建图、部分连续改图、附和和 Stop，但自然改图及 Stop 后恢复仍有模型不调用工具却口头确认的失败，**完整语音验收未通过**。详见 PROGRESS；这些探针不是真人麦克风/扬声器测试，也不是正式实验。
+
+针对“只说不做／失败却确认”，当前增加请求级执行依据：每次生成显式携带最新接受的用户请求、最新工具批次的真实状态、错误与 revision；保留模型自主调用工具和流式语音，不增加用户确认步骤。无工具调用的回答结束后，保守匹配英文修改承诺与执行记录：发现无提交、失败或无变化的矛盾时，同一请求最多自动纠正一次；仍矛盾则停止剩余播放、显示未验证提示并结束该请求，连接保持可用。普通讨论不要求工具调用，两实验条件共用此机制。该检测是有限句式的恢复措施，不验证全部话语或操作语义，不能追回已听到的语音，也不把 commit 当作实际渲染。真实预飞已观察到纠正后模型仍只承诺不执行，故不能宣称该问题已彻底解决。
 
 选择 Olist：
 
@@ -152,7 +158,7 @@ Olist 的核心查询不按问题名称拆成多个工具，而由一个语义�
 
 `configs/olist.json` 可选配置 `initial_dashboard`。每项都是普通 `create_chart` 参数，不包含预计算 rows。会话初始化时，月订单、州评分、州订单、Top-15 品类收入和月配送时长依次走同一条 `create_chart → aggregate` 路径，全部成功后才一次提交为 revision 1。任意一图失败都丢弃私有 draft，并返回结构化 `initial_dashboard_error`。Education 未配置初始图，仍从 revision 0 空仪表盘开始。
 
-这使初始图和对话中的创建、修改、筛选共用同一工具与数据口径；没有第二套前端预置数据或 Olist-only chart tool。实现合同与验收证据见 `M2_IMPLEMENTATION.md`、`M2_REPORT.md` 和 `PROGRESS.md`。
+这使初始图和对话中的创建、修改、筛选共用同一工具与数据口径；没有第二套前端预置数据或 Olist-only chart tool。实现说明与历史验收证据见 [M2_REPORT.md](M2_REPORT.md) 和 [PROGRESS.md](PROGRESS.md)。
 
 ## Contract：响应、草稿与发布
 
@@ -193,6 +199,24 @@ python scripts/analyze_traces.py path/to/trace.jsonl --strict
 
 分析器优先按唯一 `user.request_received.request_id` 计数；配对的 `request.received` / `revision.received` 不重复计数。若 trace 缺少部分 canonical receive event，会只用缺少的 request IDs 做 fallback，并发出 `request_count_fallback` 诊断。每个 revision 的 observed window 保存在 `revision_saving_windows_ms` 数组；便于比较的标量 `revision_saving_window_ms` 仅在该 session 恰有一条 in-flight revision 时有单一含义，revision 为零条或多条时为 null。分析器只访问用于统计的 ID、phase、canonical outcome 与 timing 字段，不读取或输出 transcript、arguments、audio、payload 或完整原始记录。通过自动化测试不构成 pilot/user-study 效果证据。
 
+### 可选的完整文字会话记录
+
+可读归档与 Trace v2 分开保存。只有显式开启 `conversation_logging: true` 且本次会话具备文字记录同意，才创建 `conversation_log_dir/<session_id>/conversation.jsonl` 和 `tool_calls.jsonl`。默认关闭；非正式演示使用 `trace_consent: true`，正式研究仍以服务端冻结的 `study.consent.transcript` 为准，URL 不能开启同意。目录默认 `conversation_logs`，相对仓库根目录解析，不可放在公开的 `frontend/dist` 内。例如，在私有演示配置中增加：
+
+```json
+{
+  "conversation_logging": true,
+  "conversation_log_dir": "conversation_logs",
+  "trace_consent": true
+}
+```
+
+`conversation.jsonl` 保留旧格式的 `ts`、`session_id`、`role`（`You` / `AI`）、`text`，增加 `message_id`、`request_id`、本地 `response_id` 和状态。用户最终转写只写一次；AI 已发布的流式文字合成一条，结束、打断或断连时写入并 flush，分别标记 `completed`、`interrupted`、`disconnected`；失败响应标记 `failed`。不补写未发布或失效的模型输出。只记录实际转写/文字，不保存原始音频或供应商数据包；`delivery_scope` 明确这不等于用户实际听完的音频。进程被强制终止时，未结束的缓冲文字可能丢失；不承诺崩溃恢复。
+
+`tool_calls.jsonl` 保存工具名、脱敏参数、耗时、实际 `execution_status` / `result_success`、批次 `commit_status` 与本次提交的 `dashboard_revision`（未提交为 null）。物理执行成功但被新请求取代不算已提交。通过相同的 `session_id` / `request_id` 找到触发话语及该请求的所有后续回复，再通过 `response_id` / `batch_id` / `call_id` 对齐 Trace；存在对应文字时另有 `user_message_id` / `assistant_message_id`，纯工具响应可以没有 AI 文字 ID。工具结果明细仍以既有运行时事件为准，不在这里复制完整数据行或 dashboard 快照。
+
+写入失败会明确提示归档可能不完整，不改变分析提交权限；初始化失败拒绝开启该会话并明确提示日志配置问题。完整转写与参数可能包含敏感分析内容，必须仅保存在私有目录且不得提交 Git；不要把该目录作为 Trace 分析器输入。开启后仅覆盖新会话，不能恢复之前没有保存的对话。没有新增回放网页，也不改变正式实验的默认隐私设置。
+
 ## 真实 Provider 的边界
 
 本实现包含真实 Qwen WebSocket 传输，不在生产路径使用 Fake Provider。但还没有完成带凭证的真实语音联调。
@@ -203,9 +227,48 @@ python scripts/analyze_traces.py path/to/trace.jsonl --strict
 
 ## 验证与实验
 
-### 六任务工具池与图表验收
+### 十二人组间 study：当前运行入口
 
-新增任务池在 `experiments/olist_study_task_pool.json`，不替换下面的旧 pilot 排程。五个分析入口为 `aggregate`、`compare_segments`、`distribution`、`relationship`、`compare_periods`。接口与统计边界见 [实验工具设计](docs/superpowers/specs/2026-10-16-study-tools-and-chart-layout-design.md)；正式用户实验仍须完成真实语音预飞。
+旧 `prepare_pilot.py` / S1–S4 仅用于历史交叉 pilot；当前研究使用以下独立命令。所有路径从仓库根目录解析，输出目录默认被 Git 忽略，已有排程和导出不允许覆盖。
+
+```powershell
+.\.venv\Scripts\python.exe scripts/prepare_study.py --manifest experiments/olist_voice_policy_between_v1.json --participants 12 --seed 20261019 --output study_schedules/cohort.json
+```
+
+服务端使用 Olist 配置的本地副本，并添加 `study` 配置；先在独立的预飞排程、Trace 和 study_data 目录中演练，绝不能混入正式数据。将该本地配置保存在已忽略目录（例如 `study_data/preflight-config.json`），以 `VERBALVIS_CONFIG` 指向它。下列同意项只是字段说明：真实参与者必须完成相应知情同意，不能把示例当成同意记录。
+
+```json
+"study": {
+  "enabled": true,
+  "mode": "preflight",
+  "schedule_dir": "study_schedules/preflight",
+  "data_dir": "study_data/preflight",
+  "consent": {"transcript": false, "analysis_evidence": true, "final_answer": true}
+}
+```
+
+该预飞示例还需把 `prepare_study.py` 的输出设为 `study_schedules/preflight/cohort.json` 单独生成排程，并把本地配置的 `trace_dir` 设为 `study_data/preflight-traces`。`preflight` 模式不会自动给 attempt 加 practice 标记，因此隔离目录是必需条件，而非可选整理方式；正式配置不能复用预飞的 data_dir 或 Trace 目录。
+
+正式配置使用 `mode: "formal"`，另需 `expected_provenance` 精确匹配 `git_commit`、`git_dirty: false`、`model`、`prompt_sha256`、`tool_schema_sha256`、`dataset_version`、`initial_dashboard_sha256`；不允许脏工作区或未知版本冒充冻结版。当前未提交工作分支只用于开发与预飞。将来在经批准的干净提交上完成预飞后，可从 technical 导出中读取该 attempt 的 `provenance`，复核后写入独立正式配置，不能手工编造 hash 或把 dirty 改成 false。initial_dashboard 哈希来自构造会话时真实查询物化的初始快照。模型、声音、endpoint、设备和其他非敏感运行参数还须按冻结清单人工记录。
+
+运行单 worker 后端，打开 `http://127.0.0.1:8001/?assignment_id=<排程中的 assignment_id>`。浏览器只提供 assignment ID，不能覆盖 condition、participant 或 task。真实语音仍需本地 `DASHSCOPE_API_KEY` 与兼容 provider。
+
+流程为：初始图实际渲染且证据写入成功 → Start → 展示唯一任务并开始 600 秒探索 → 截止冻结最后合法 dashboard → 渲染和证据在 15 秒内就绪 → 180 秒答题 → 完成及四项问卷。Saved 仅在服务器事务回执后显示；答题超时保存最后已确认草稿，未保存的本地输入不算已提交。刷新/断连终止未完成 attempt，服务端接受 Start 后即按可能曝光处理，不能自动重做正式题；已完成答案不因断连删除。Stop response 不结束 trial，暂停麦克风也不等于 Stop。
+
+```powershell
+.\.venv\Scripts\python.exe scripts/audit_study.py --schedule study_schedules/cohort.json --study-data study_data/cohort --traces traces --output study_exports/audit.json --strict
+.\.venv\Scripts\python.exe scripts/export_study.py --study-data study_data/cohort --output study_exports/technical --package technical
+.\.venv\Scripts\python.exe scripts/export_study.py --study-data study_data/cohort --output study_exports/ratings --package ratings
+.\.venv\Scripts\python.exe scripts/export_study.py --study-data study_data/cohort --output study_exports/process --package process
+```
+
+审计分母是 12 个 assignment，不是 request 或重试次数；缺失 Trace 会使 strict 失败。technical 用于技术审计，ratings 是隐藏条件和直接身份的答案/证据包，process 仅在授权时包含转写；三者应分开授权和分发。study journal schema 1 与既有 Trace v2 以 session_id 关联，不改写 v2。
+
+仅检查界面可使用下节同一图表 fixture 开发服务的 `/study-preview.html`，切换 Ready、Exploring、Freeze pending、Answering、Completed 和 Error 状态。该页明确使用合成研究状态，按钮不保存正式答案，不连接 provider，也不是用户实验或真实语音验收证据。
+
+### 两任务研究材料与六方向工具验收
+
+当前任务池 `experiments/olist_study_task_pool.json` 2.0 只保留评分与配送、重量与运费占比两个假设探索任务，不替换下面的旧 pilot 排程。六条确定性工具回放仍用于技术验收，不代表正式研究有六题。五个分析入口为 `aggregate`、`compare_segments`、`distribution`、`relationship`、`compare_periods`。接口与统计边界见 [实验工具设计](docs/superpowers/specs/2026-10-16-study-tools-and-chart-layout-design.md)；正式用户实验仍须完成真实语音预飞。
 
 无模型密钥的确定性回放（不是模型或用户实验结果）：
 
@@ -222,6 +285,12 @@ npm run dev -- --host 127.0.0.1 --port 5175 --strictPort
 ```
 
 打开 `http://127.0.0.1:5175/visual-check.html`。卡片按图形内容高度紧凑排列，界面不显示内部 view ID 或调试侧栏。类别热力图超过 24 类时按 20 类分页；横向条形图超过 20 类时按 14 类分页。分页保留完整数据及统一色域/数值尺度，查看全图时在卡片内滚动。添加 `?debug=1` 可查看用于长标题、缺失值和分面布局验收的 synthetic edge cases；它们不是 Olist 研究数据。
+
+4K 工作台参考旧版前端的简洁组织：单行顶栏、规整图卡、底部逐行对话。品牌、会话状态、视图数量和分析范围合并；离线图表示例只保留一处状态说明，无重复 Preview 提示。分析区可用宽度达到 1440px 且仅含一张分类热力图和至多八张单列图时，左侧固定两行四列、图卡等高等宽；右侧分类热力图纵跨两行。`freight_bins` 这类数值分箱热力图属于左侧普通图卡。绘图高度使用图卡实际剩余空间，分类矩阵按可读行高动态分页，全部数据、全局色域与统计口径不变。Conversation 固定占视口高度四分之一（空白时也保留），普通会话可收起；完整转写和实验控件在面板内独立滚动。当前 9 图目标为整屏展示，无画布或图内滚动条；额外视图、分面和较窄窗口使用兼容排列，不裁掉证据来强行落屏。
+
+每张图标题左侧显示编号，当前左侧按行编号 1–8，右侧分类热力图为 9。编号映射以普通图在前、分类矩阵在后，组内保留来源顺序；不随窗口尺寸变化。模型上下文和 `inspect_dashboard` 返回同一 `display_number`，提示词要求将“view 3 / 第三张图”解析为对应真实 `id` 后再调用工具，不能直接使用数组位置。新增、删除或类型变化后编号按当前画布重算；编号是显示引用，不替代持久化视图 ID。
+
+固定格图卡采用 border-box 测量，按向下取整并留 2px 余量的实际宽高绘制 SVG，轴与图例包含在 fit 尺寸中，避免传统滚动条占用空间后触发反复重绘；固定格不设图内滚动容器。真实应用入口是后端提供的 `/`（或开发服务器首页），`visual-check.html` 仅用于离线图形验收，不代表已连接模型。正式语音运行需要后端启动环境中的 `DASHSCOPE_API_KEY`；应用不会用离线结果或假 provider 绕过缺失配置。
 
 真实 pilot 不再依赖手写 URL：[Olist Pilot 运行手册](PILOT_RUNBOOK.md) 定义了预飞、四个交叉平衡序列、标准 trial 流程、失败/重试边界、每日 Trace 质检与 pilot 结束门槛；[正式实验冻结清单](STUDY_FREEZE_CHECKLIST.md) 明确了从 pilot 到正式 study wave 前必须固定的研究、软件、隐私和变更控制事项。任务与分配来自 `experiments/olist_pilot.json`，参与者排程使用：
 
@@ -278,4 +347,4 @@ python scripts/audit_pilot.py --schedules pilot_sessions --traces traces --stric
 
 尚需真人验收：指定模型的控制参数确认、连续语音/附和/意图修订、麦克风与扬声器回声影响、原界面视觉对照、真实非电商数据接口，以及全/半双工用户实验。实验室设备稳定不等于这些交互路径已经被验证。
 
-默认 Trace 只保存 ID、决策、时序和结果状态，transcript/arguments/payload 脱敏且不保存原始音频。只有研究参与者同意后，才将配置 `trace_consent` 设为 true。当前没有可用 `DASHSCOPE_API_KEY` 的真实 Qwen 语音 pilot 证据；真实 provider、麦克风/扬声器交互与用户研究效果仍是外部验证边界，不能用自动化测试代替。不要发布 Trace、密钥或未经授权的数据。
+默认 Trace 只保存 ID、决策、时序和结果状态，transcript/arguments/payload 脱敏且不保存原始音频。只有研究参与者同意后，才将配置 `trace_consent` 设为 true。已开展真实 provider 的合成语音技术预飞，但尚无真实用户语音 pilot 证据；麦克风/扬声器交互与用户研究效果仍待验证，不能用自动化测试代替。不要发布 Trace、密钥或未经授权的数据。

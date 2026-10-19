@@ -1,0 +1,13 @@
+{
+  "interface": "datasets/olist/interface.py",
+  "dataset": {"data_dir": "datasets/olist/data"},
+  "trace_dir": "study_data/live-preflight-20261019/traces",
+  "trace_consent": false,
+  "study": {
+    "enabled": true,
+    "mode": "preflight",
+    "schedule_dir": "study_schedules/live-preflight-20261019",
+    "data_dir": "study_data/live-preflight-20261019/records",
+    "consent": {"transcript": false, "analysis_evidence": true, "final_answer": true}
+  }
+}

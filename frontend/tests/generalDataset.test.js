@@ -102,3 +102,15 @@ test('structured OR filters render branches instead of object strings', () => {
   assert.equal(label,'(State = RJ and Category = furniture) or (State = SP)');
   assert.doesNotMatch(label,/\[object Object\]/);
 });
+
+test('legacy chart specs consume responsive presentation without changing fields or values', () => {
+  const view = {chart_type:'line',x_field:'assessment_date',y_field:'mean_score',
+    data:[{assessment_date:'2026-01-01',mean_score:82}],
+    columns:{assessment_date:{type:'temporal',label:'Assessment date'},mean_score:{type:'quantitative',label:'Mean score',unit:'points'}}};
+  const presentation = {plotHeight:420,typography:{axisLabel:14,axisTitle:14,legendLabel:13,legendTitle:13}};
+  const spec = createSpec(view,null,presentation);
+  assert.equal(spec.height,420);
+  assert.equal(spec.config.axis.labelFontSize,14);
+  assert.equal(spec.encoding.x.field,'assessment_date');
+  assert.deepEqual(spec.data.values,view.data);
+});

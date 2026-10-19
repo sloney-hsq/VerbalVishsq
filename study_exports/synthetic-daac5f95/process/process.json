@@ -1,0 +1,26 @@
+{
+  "package": "process",
+  "records": [
+    {
+      "attempt_id": "attempt-e4c61a7f6bb24f43bc54a3bac40ea17d",
+      "condition": "revision_enabled",
+      "events": [
+        {
+          "event": "request.accepted",
+          "metadata": {
+            "classification": "analytical_request",
+            "request_id": "r1",
+            "transcript": "SYNTHETIC_PRIVATE_TRANSCRIPT"
+          },
+          "seq": 1
+        }
+      ],
+      "participant_id": "P001",
+      "phase": "completed",
+      "questionnaire": null,
+      "task_id": "review-delivery-association",
+      "transcript_authorized": true
+    }
+  ],
+  "schema_version": 1
+}

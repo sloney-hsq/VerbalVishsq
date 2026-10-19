@@ -8,12 +8,21 @@ from test_olist_adapter import olist_csvs  # noqa: F401
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_task_pool_has_six_open_ended_tasks():
+def test_task_pool_has_two_version_2_hypothesis_tasks():
     payload = json.loads((ROOT / "experiments/olist_study_task_pool.json").read_text(encoding="utf-8"))
+    assert payload["pool_version"] == "2.0"
     assert payload["status"] == "pilot_pool_not_allocated"
     assert [task["task_id"] for task in payload["tasks"]] == [
-        "regional-delivery-risk", "delivery-period-change", "review-delivery-association",
-        "freight-definition-robustness", "freight-attribute-association", "seller-delivery-stability"]
+        "review-delivery-association", "freight-attribute-association"]
+    assert [task["title"] for task in payload["tasks"]] == [
+        "Do longer deliveries receive lower review scores?",
+        "Do heavier products have a higher freight share?",
+    ]
+    assert "delivered orders purchased in 2017 and sent to SP or RJ" in payload["tasks"][0]["prompt"]
+    assert "review score (1 to 5)" in payload["tasks"][0]["prompt"]
+    assert "items from delivered orders purchased in 2017 and sent to SP or RJ" in payload["tasks"][1]["prompt"]
+    assert "freight divided by item price plus freight" in payload["tasks"][1]["prompt"]
+    assert "positive price" in payload["tasks"][1]["prompt"]
 
 
 def test_six_task_replay_uses_real_toolbox_state(olist_csvs, tmp_path):

@@ -26,6 +26,18 @@
 
 两题默认探索 10 分钟、冻结后作答 3 分钟；练习只使用分配条件与无关题目。最终答案质量为主指标，图表数和修订数不自动加分。
 
+### 本研究的全会话编码与评分准备
+
+以下是正式采集前需用非正式样例校准的规则；不改写历史 `REVISION_CODEBOOK.md` 的 in-flight 范围。
+
+编码单位为一个已接受的 analytical request，按同一 session 的接受顺序与前一个请求比较。首个请求记 `initial`；无关的新分析问题记 `new_question`；保持问题且未修订的后续询问记 `continuation`；明确改变既有分析记 `revision`。没有授权转写或上下文不足记 `not_codable`，不得从工具参数反推用户想法。是否 in-flight 是另一独立字段，已 settled 后的修订也纳入本研究。
+
+对 `revision` 标记主要变化：`goal`（要回答的问题）、`hypothesis`（可识别的解释假设被替换）、`scope`（对象、时间、筛选、粒度或统计口径）、`presentation`（仅图形表达）。多个变化可记次级标签；主要标签依次按 goal、hypothesis、scope、presentation 判定，并保留判断依据。另列 `repair_kind=none/asr/system/unclear`，误听纠正不自动算成探索收益。停止、附和、空话语和被拒绝输入不算已接受分析请求。
+
+最小编码字段：`codebook_version, case_id, request_id, previous_request_id, request_kind, primary_change, secondary_changes, repair_kind, in_flight, last_confirmed_dashboard_revision, feedback_basis, evidence_note, coder_id`。`feedback_basis` 区分直接指向图表、访谈明确解释、仅时序相邻和无法判断；渲染 ACK 不证明用户看到了图，时序相邻不证明图表造成修订。过程包可能暴露交互策略，不能当作最终答案盲评包。
+
+两名评分者按研究设计的三维各 0–3 分独立评分，保存各自原分；主要分数用两名独立总分的平均值。技术完整但留空的答案按零分处理，退出或保存失败的缺失不填零。先用真实数据和非正式示例校准任务口径与证据定位，不预设支持初始假设才是正确答案。所有规则在首位正式参与者前由研究团队批准，之后变更需版本化。
+
 ## 历史六任务工具预演
 
 ### 一 地区配送风险

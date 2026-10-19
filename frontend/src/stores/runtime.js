@@ -23,6 +23,10 @@ export const useRuntimeStore = defineStore("runtime", () => {
   const lastToolError = ref("");
   const lastToolDurationMs = ref(null);
   const ignoredAudioChunks = ref(0);
+  const studyState = ref(null);
+  const studyReceipt = ref(null);
+  const answerSaved = ref(false);
+  const renderEnvelope = ref(null);
 
   const phaseLabel = computed(() => {
     switch (phase.value) {
@@ -155,6 +159,38 @@ export const useRuntimeStore = defineStore("runtime", () => {
     }
   }
 
+  function applyStudyState(message = {}) {
+    const phases = new Set(['preparing', 'ready', 'exploring', 'answering', 'completed', 'aborted']);
+    if (message.type !== 'trial.state' || !phases.has(message.phase)) return false;
+    const taskVisible = ['exploring', 'answering', 'completed'].includes(message.phase);
+    studyState.value = {
+      phase: message.phase,
+      freeze_status: message.freeze_status || null,
+      remaining_ms: Number.isFinite(Number(message.remaining_ms)) ? Math.max(0, Number(message.remaining_ms)) : null,
+      task: taskVisible && message.task && typeof message.task === 'object' ? structuredClone(message.task) : null,
+      answer_status: message.answer_status || null,
+      evidence_refs_ready: Array.isArray(message.evidence_refs_ready)
+        ? structuredClone(message.evidence_refs_ready)
+        : Boolean(message.evidence_refs_ready),
+      allowed_actions: Array.isArray(message.allowed_actions) ? [...message.allowed_actions] : [],
+      error_code: message.error_code || null,
+    };
+    return true;
+  }
+
+  function noteStudyControl(event = {}) {
+    if (event.type === 'answer.save') answerSaved.value = false;
+  }
+
+  function applyStudyReceipt(receipt = {}) {
+    studyReceipt.value = structuredClone(receipt);
+    if (receipt.status === 'accepted' && receipt.event_type === 'answer.save') answerSaved.value = true;
+  }
+
+  function setRenderEnvelope(envelope) {
+    renderEnvelope.value = envelope && typeof envelope === 'object' ? structuredClone(envelope) : null;
+  }
+
   function resetRuntime() {
     inputPolicySeq.value = -1;
     condition.value = null;
@@ -175,6 +211,10 @@ export const useRuntimeStore = defineStore("runtime", () => {
     lastToolError.value = "";
     lastToolDurationMs.value = null;
     ignoredAudioChunks.value = 0;
+    studyState.value = null;
+    studyReceipt.value = null;
+    answerSaved.value = false;
+    renderEnvelope.value = null;
   }
 
   return {
@@ -194,6 +234,10 @@ export const useRuntimeStore = defineStore("runtime", () => {
     lastToolError,
     lastToolDurationMs,
     ignoredAudioChunks,
+    studyState,
+    studyReceipt,
+    answerSaved,
+    renderEnvelope,
     phaseLabel,
     phaseDetail,
     activeFilterCount,
@@ -204,6 +248,10 @@ export const useRuntimeStore = defineStore("runtime", () => {
     finishToolBatch,
     recordToolResult,
     updateDashboardState,
+    applyStudyState,
+    noteStudyControl,
+    applyStudyReceipt,
+    setRenderEnvelope,
     resetRuntime,
   };
 });

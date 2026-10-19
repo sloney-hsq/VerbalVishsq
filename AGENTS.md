@@ -34,15 +34,17 @@ The application is demonstrated and evaluated by an international visualization 
 
 ## Desktop target: 16:9
 
-- Design primarily for a landscape 16:9 computer display at 1920x1080; verify compatibility at 1366x768. Account for browser chrome and any conversation panel rather than assuming the full display is available to plots.
-- Use available width deliberately: normally three chart columns on a wide desktop workspace, two at medium width, and one when narrow. Dense matrices and facets may span columns when their content needs it.
+- Design primarily for a landscape 4K 16:9 computer display at 3840x2160. Also verify 2560x1440 and 1920x1080 effective CSS viewports for common display scaling, plus compatibility at 1366x768. Account for browser chrome and the conversation panel rather than assuming the full display is available to plots.
+- Use available width deliberately: on the current nine-view wide desktop, place eight equal-width, equal-height cards in a left 2-row by 4-column grid, with one category heatmap in the right column spanning both rows. A quantitative binned heatmap is one of the eight left cards, not a second right-lane matrix. Use two columns at medium width and one when narrow; retain natural-height fallback for additional views or facets. Fit the current nine-view 4K dashboard without canvas or plot scrollbars; preserve complete data through explicit category paging when needed, not clipped marks.
+- Place Conversation below the full-width analytical canvas at 25% of the viewport height, including when empty. Allow the dock to collapse outside formal trials and preserve complete transcripts and study controls with independent scrolling.
+- Put a visible ordinal to the left of every chart title: left comparison cards first (1–8 on the current dashboard), then the right category matrix (9). Keep numbers independent of viewport size, and project the identical display_number-to-ID mapping to model context and dashboard inspection. Do not use raw array positions to resolve spoken view numbers or rewrite authoritative chart IDs.
 - Use the available viewport height for the workspace, with deliberate scrolling inside the analytical area. Do not force every dataset or chart into one screen by shrinking labels or clipping evidence.
 - A 16:9 screen does not require every chart or card to have a 16:9 aspect ratio. Size each chart to its data, labels, legend, and analytical purpose.
 - Verify both target desktop sizes in the actual browser and restore temporary viewport overrides after checking them. Mobile support is a fallback, not the primary design reference.
 
 ## Visual presentation
 
-- Size cards to their content and verify the actual rendered chart width after responsive layout changes.
+- Keep the interface simple, following the older frontend's single toolbar, regular cards and bottom row-based transcript. Do not add decorative preview-state panels or repeated placeholder instructions. Keep one honest offline indicator for saved-result previews. Use equal comparison cards on the nine-view desktop and content sizing for fallback layouts; verify the actual rendered chart dimensions.
 - Keep all categories reachable when introducing presentation paging; preserve analytical data, global scales, selection semantics, and dashboard revisions.
 - Verify visible changes in the running application, including a narrow viewport, rather than relying on compilation alone.
 

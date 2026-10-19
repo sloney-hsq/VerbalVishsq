@@ -61,8 +61,10 @@ export function createSpec(view, highlightElement = null, presentation = null) {
   const tooltip = [encoding(sourceView.x_field, 'tooltip'), encoding(sourceView.y_field, 'tooltip')];
   const spec = {
     $schema: 'https://vega.github.io/schema/vega-lite/v6.json',
-    width: 'container', height: chartHeightForView(view),
+    width: presentation?.fitWidth ?? 'container', height: presentation?.plotHeight || chartHeightForView(view),
     autosize: {type: 'fit', contains: 'padding', resize: true},
+    padding: {left:4,right:8,top:6,bottom:4},
+    config: responsiveConfig(presentation),
     data: {values: (sourceView.data || []).map(row => ({...row}))},
     mark: sourceView.chart_type === 'scatter' ? {type:'circle', tooltip:true, opacity:0.62}
       : sourceView.chart_type === 'line' ? {type:'line', point:true, tooltip:true}
@@ -78,7 +80,10 @@ export function createSpec(view, highlightElement = null, presentation = null) {
     .filter(Boolean);
   if (descriptions.length) spec.description = descriptions.join(' ');
   if (sourceView.chart_type === 'line') x.sort = 'ascending';
-  if (sourceView.chart_type === 'bar' && x.type === 'nominal') x.sort = '-y';
+  if (sourceView.chart_type === 'bar' && x.type === 'nominal') {
+    x.sort = '-y';
+    if (presentation?.categoryAxis) x.axis = {...x.axis,...presentation.categoryAxis};
+  }
   if (sourceView.color) {
     spec.encoding.color = encoding(sourceView.color, 'legend');
     tooltip.push(encoding(sourceView.color, 'tooltip'));
@@ -101,6 +106,26 @@ function formatForUnit(unit) {
   if (['days', 'points', 'kg'].includes(normalized)) return ',.2f';
   if (['orders', 'items', 'customers', 'count', 'cm3'].includes(normalized)) return ',.0f';
   return null;
+}
+
+function responsiveConfig(presentation) {
+  const typography = presentation?.typography || {
+    axisLabel:12,axisTitle:12,legendLabel:12,legendTitle:12,
+  };
+  return {
+    font:'Segoe UI, Microsoft YaHei, sans-serif',
+    view:{stroke:null},
+    axis:{domain:false,ticks:false,labelColor:'#64748b',titleColor:'#475569',
+      labelFontSize:typography.axisLabel,titleFontSize:typography.axisTitle,titleFontWeight:500,
+      labelPadding:8,titlePadding:12,gridColor:'#edf1f5',tickCount:5},
+    axisDiscrete:{grid:false,labelAngle:0,labelLimit:180},
+    legend:{orient:'top',direction:'horizontal',columns:presentation?.legendColumns || 2,
+      titleFontSize:typography.legendTitle,titleColor:'#64748b',titleFontWeight:600,
+      labelFontSize:typography.legendLabel,labelColor:'#475569',labelLimit:180,symbolSize:80,padding:0,offset:12},
+    bar:{color:'#447b9f',binSpacing:2},
+    line:{strokeWidth:typography.axisLabel >= 14 ? 2.5 : 2},
+    point:{size:typography.axisLabel >= 14 ? 48 : 40,filled:true},
+  };
 }
 
 function filterMetadata(description, field) {

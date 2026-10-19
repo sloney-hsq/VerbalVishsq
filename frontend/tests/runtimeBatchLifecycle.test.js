@@ -5,6 +5,16 @@ import { createPinia, setActivePinia } from "pinia";
 import { useRuntimeStore } from "../src/stores/runtime.js";
 import { SessionProjection } from "../src/sessionProjection.js";
 
+test('trial state hides task before start and preserves server timing as display data', () => {
+  setActivePinia(createPinia());
+  const runtime = useRuntimeStore();
+  runtime.applyStudyState({type:'trial.state',phase:'ready',remaining_ms:null,task:{title:'Must stay hidden'},allowed_actions:['trial.start']});
+  assert.equal(runtime.studyState.task, null);
+  runtime.applyStudyState({type:'trial.state',phase:'exploring',remaining_ms:599123,task:{title:'Visible'},allowed_actions:['control.stop']});
+  assert.equal(runtime.studyState.task.title, 'Visible');
+  assert.equal(runtime.studyState.remaining_ms, 599123);
+});
+
 test("only the active batch finalizer clears the tool-running state", () => {
   setActivePinia(createPinia());
   const runtime = useRuntimeStore();

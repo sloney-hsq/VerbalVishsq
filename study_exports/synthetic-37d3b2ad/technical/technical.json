@@ -1,0 +1,39 @@
+{
+  "package": "technical",
+  "records": [
+    {
+      "assignment_id": "olist-voice-policy-between.P001",
+      "attempt_id": "attempt-14f15d4c7e2444beb2bef63c0d66cc70",
+      "condition": "revision_enabled",
+      "evidence": [
+        {
+          "artifact_id": "evidence-c4ef2cc45797424d9485c1cb117505bf",
+          "byte_count": 48,
+          "error_code": null,
+          "revision": 1,
+          "sha256": "f4ca817736714220dfbc8bfa9ee4bea530a8f3cc983546cb119e7a9bb3f48979",
+          "status": "ready"
+        }
+      ],
+      "evidence_failure": null,
+      "freeze_status": "ready",
+      "frozen_revision": 1,
+      "last_rendered_revision": 1,
+      "phase": "completed",
+      "provenance": {
+        "dataset_version": "olist-v1",
+        "git_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "git_dirty": false,
+        "initial_dashboard_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "model": "qwen",
+        "prompt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "tool_schema_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "session_id": "synthetic-session",
+      "status": "saved",
+      "task_exposed": true,
+      "task_id": "review-delivery-association"
+    }
+  ],
+  "schema_version": 1
+}

@@ -32,6 +32,11 @@ export function microphoneControl({ recording, starting, sessionReady, connected
   return { disabled: false, label: "Start mic" };
 }
 
+export function studyVoiceControl({ phase }) {
+  const exploring = phase === 'exploring';
+  return { microphoneEnabled: exploring, stopEnabled: exploring };
+}
+
 export function captureBlockedForPlaybackStop(reason) {
   return reason !== "speech_overlap";
 }

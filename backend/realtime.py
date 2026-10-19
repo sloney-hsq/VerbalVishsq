@@ -12,6 +12,9 @@ from uuid import uuid4
 
 from .conditions import REVISION_ENABLED, TURN_TAKING, require_canonical_condition
 from .prompts import build_instructions
+from .execution_grounding import ExecutionGrounding
+from .provider_payload import (encode_provider_event, model_tool_definitions,
+                               tool_output_event, ProviderMessageTooLarge)
 from .revision import bind_response, is_in_flight, new_request, transition
 from .response_protocol import ResponseProtocol, ProtocolError
 
@@ -61,8 +64,10 @@ def classify_utterance_role(text):
 
 class AnalysisSession:
     def __init__(self, dataset, browser_send, provider_send, condition, trace, *, dashboard=None, toolbox=None,
-                 initial_dashboard=None):
+                 initial_dashboard=None, study=None, render_tracker=None, journal=None):
         require_canonical_condition(condition)
+        if study is not None and study.assignment.get('condition') != condition:
+            raise ProviderContractError('Formal study condition must come from the server assignment.')
         if dashboard is None:
             from .dashboard import Dashboard
             dashboard = Dashboard(dataset.description['dataset_id'], dataset.description['version'])
@@ -89,8 +94,13 @@ class AnalysisSession:
         self.protocol = ResponseProtocol()
         self.browser_send, self.provider_send = browser_send, provider_send
         self.condition, self.trace = condition, trace
+        self.journal = journal
+        self._journal_warning_sent = False
+        self.study = study
+        self.render_tracker = render_tracker or (getattr(study, 'render_tracker', None) if study is not None else None)
         self.phase = 'ready'
         self.current_request = None
+        self._grounding = None
         self.requests = {}
         self._response_requests = {}
         self._policy_version = 0
@@ -116,7 +126,110 @@ class AnalysisSession:
         self._held_events = []
         self._held_bytes = 0
         self._overlap_id = None
+        self._study_freeze_started = False
+        self._last_rendered_revision = None
+        self._study_deadline_closed = False
+        self._study_deadline_response_id = None
+        self._study_expiry_recorded = False
         self.failed = asyncio.Event()
+
+    def _study_gate(self, kind):
+        if self.study is None:
+            return True, False
+        now_ns = self.study.clock()
+        first_expiry = self.study.expire_if_due(now_ns)
+        if first_expiry:
+            self._close_study_deadline_sync()
+        if self._study_deadline_closed and not self._study_expiry_recorded:
+            self._record_study_expiry()
+        return self.study.check_effect(kind, now_ns), (
+            self._study_deadline_closed and not self._study_freeze_started)
+
+    def _close_study_deadline_sync(self):
+        """Close both study and response gates; callers may hold protocol.guard()."""
+        self._study_deadline_closed = True
+        self._study_deadline_response_id = self.protocol.current.id if self.protocol.current else None
+        self.protocol.revise()
+        self._requested = None
+        self._resolved.set()
+
+    def _record_study_expiry(self):
+        self._study_expiry_recorded = True
+        self._set_request_phase('failed', terminal_reason='exploration_deadline')
+        self._trace_response('intent.revoked', response_id=self._study_deadline_response_id,
+                             reason='exploration_deadline')
+
+    async def _finish_study_expiry(self):
+        if self.study is None or self._study_freeze_started or not self._study_deadline_closed:
+            return
+        self._study_freeze_started = True
+        try:
+            frozen = self.study.freeze(self.dashboard.snapshot(), self._last_rendered_revision,
+                                       self.study.clock(), 'exploration_deadline')
+            self._flush_study_evidence()
+        except Exception as error:
+            frozen = {'type': 'trial.state', 'phase': 'aborted', 'freeze_status': 'failed',
+                      'remaining_ms': None, 'answer_status': None,
+                      'evidence_refs_ready': [], 'allowed_actions': [],
+                      'error_code': getattr(error, 'code', 'study_freeze_failed')}
+        # The immutable snapshot/token and readiness deadline exist before any
+        # transport await. Cancellation and notification can be delayed, but
+        # they cannot move the evidence boundary.
+        if self._study_deadline_response_id:
+            await self._emit_control('assistant_playback_stop', response_id=self._study_deadline_response_id,
+                                     reason='exploration_deadline')
+        if self._provider_active:
+            await self._publish(self._provider_lock, self.provider_send,
+                                {'event_id': uuid4().hex, 'type': 'response.cancel'})
+        await self._emit_control_event(frozen)
+        await self.input_policy('ready')
+
+    async def _emit_control_event(self, event):
+        async with self._browser_lock:
+            if self._closed:
+                return False
+            self._seq += 1
+            payload = dict(event, seq=self._seq)
+            await self.browser_send(payload)
+            self._archive_published(payload)
+        self.trace.record('browser.sent', message_type=event.get('type'))
+        return True
+
+    def _archive_published(self, event):
+        if self.journal is not None:
+            archived = dict(event)
+            rid = archived.get('response_id')
+            if rid:
+                archived.setdefault('provider_response_id',next(
+                    (pid for pid,local in self.provider_ids.items() if local == rid),None))
+            self.journal.observe(archived)
+            self._check_journal()
+
+    def _check_journal(self):
+        if self.journal is not None and self.journal.failed and not self._journal_warning_sent:
+            self._journal_warning_sent = True
+            self.trace.record('conversation_log.failed',error_code='archive_write_failed')
+            if not self._closed:
+                self._spawn(self._emit_control('error',message=
+                    'Session text logging failed. The conversation archive may be incomplete.'))
+
+    async def _emit_control(self, kind, **payload):
+        return await self._emit_control_event(dict(type=kind, **payload))
+
+    async def poll_study(self):
+        if self.study is None or self._closed:
+            return []
+        _, finish = self._study_gate('input')
+        if finish:
+            await self._finish_study_expiry()
+        events = self.study.poll(self.study.clock())
+        for event in events:
+            await self._emit_control_event(event)
+        return events
+
+    def _flush_study_evidence(self):
+        if self.study is not None and hasattr(self.study, 'store'):
+            self._spawn(self.study.store.flush_evidence(self.study.attempt_id))
 
     async def _wait_authority(self, response_id):
         while not self._closed:
@@ -130,29 +243,47 @@ class AnalysisSession:
 
     async def _publish(self, lock, callback, event, *, response_id=None,
                        batch_id=None, output_key=None, output_error=False, browser=False,
-                       policy_version=None):
+                       policy_version=None, effect_kind=None):
         while True:
+            if effect_kind is not None:
+                allowed, finish = self._study_gate(effect_kind)
+                if not allowed:
+                    if finish:
+                        await self._finish_study_expiry()
+                    return False
             if response_id and not await self._wait_authority(response_id):
                 return False
+            denied = False
+            finish = False
             async with lock:
                 if self._closed:
                     return False
                 if policy_version is not None and policy_version != self._policy_version:
                     return False
+                if effect_kind is not None:
+                    allowed, finish = self._study_gate(effect_kind)
+                    if not allowed:
+                        denied = True
                 if response_id and not self.protocol.allowed(response_id):
                     # Suspension while acquiring the lock is not revocation. Release
                     # the lock before waiting so ASR/control events can resolve it.
-                    continue
-                if output_key is not None and not self.protocol.consume_output(
-                        response_id, batch_id, output_key, error=output_error):
-                    return False
-                # No await between the final authority/once-only check and send.
-                # An already in-flight transport call cannot be retracted.
-                if browser:
-                    self._seq += 1
-                    event = dict(event, seq=self._seq)
-                await callback(event)
-                return True
+                    if not denied:
+                        continue
+                if not denied:
+                    if output_key is not None and not self.protocol.consume_output(
+                            response_id, batch_id, output_key, error=output_error):
+                        return False
+                    # No await between the final authority/deadline/once-only checks and send.
+                    if browser:
+                        self._seq += 1
+                        event = dict(event, seq=self._seq)
+                    await callback(event)
+                    if browser:
+                        self._archive_published(event)
+                    return True
+            if finish:
+                await self._finish_study_expiry()
+            return False
 
     async def emit(self, kind, *, output_key=None, output_error=False, **payload):
         rid = payload.get('response_id')
@@ -164,16 +295,21 @@ class AnalysisSession:
             event['request_id'] = request_id
         sent = await self._publish(self._browser_lock, self.browser_send, event,
                                   response_id=guarded, batch_id=payload.get('batch_id'),
-                                  output_key=output_key, output_error=output_error, browser=True)
+                                  output_key=output_key, output_error=output_error, browser=True,
+                                  effect_kind='analysis_output' if guarded else None)
         if sent:
             self.trace.record('browser.sent', message_type=kind, response_id=rid,
                               request_id=self._response_requests.get(rid), batch_id=payload.get('batch_id'))
         return sent
 
-    async def send(self, event, *, response_id=None, batch_id=None, output_key=None, output_error=False):
-        return await self._publish(self._provider_lock, self.provider_send, dict(event_id=uuid4().hex, **event),
+    async def send(self, event, *, response_id=None, batch_id=None, output_key=None,
+                   output_error=False, effect_kind=None):
+        event = dict(event_id=uuid4().hex, **event)
+        encode_provider_event(event)
+        return await self._publish(self._provider_lock, self.provider_send, event,
                                    response_id=response_id, batch_id=batch_id,
-                                   output_key=output_key, output_error=output_error)
+                                   output_key=output_key, output_error=output_error,
+                                   effect_kind=effect_kind or ('analysis_output' if response_id else None))
 
     def _trace_response(self, event, response=None, *, response_id=None, **details):
         if response is None:
@@ -189,6 +325,10 @@ class AnalysisSession:
                           base_revision=response.base_revision if response else None, **details)
 
     def _revise(self, reason):
+        if self.journal is not None and self.protocol.current:
+            self.journal.finish_response(self.protocol.current.id,
+                'disconnected' if reason == 'session_closed' else 'interrupted')
+            self._check_journal()
         self._trace_response('intent.revoked', reason=reason)
         self.protocol.revise()
 
@@ -257,7 +397,8 @@ class AnalysisSession:
         version = self._policy_version
         event = {'type': 'input_policy', 'condition': self.condition, 'phase': phase,
                  'accepts_audio': phase not in {'closed', 'error', 'configuration_error', 'connecting'} and (
-                     self.condition == REVISION_ENABLED or not is_in_flight(self.current_request))}
+                     self.condition == REVISION_ENABLED or not is_in_flight(self.current_request)) and (
+                     self.study is None or self.study.check_effect('input', self.study.clock()))}
         sent = await self._publish(self._browser_lock, self.browser_send, event,
                                    browser=True, policy_version=version)
         if sent:
@@ -272,16 +413,84 @@ class AnalysisSession:
             'turn_detection': {'type': 'server_vad', 'threshold': 0.5,
                                'silence_duration_ms': 600, 'create_response': False, 'interrupt_response': False},
             'instructions': build_instructions(self.dataset.description, self.toolbox.schemas(), self.dashboard.snapshot()),
-            'tools': [{'type': 'function', 'function': {k: d[k] for k in ('name', 'description', 'parameters')}} for d in self.toolbox.schemas()],
+            'tools': [{'type': 'function', 'function': {k: d[k] for k in ('name', 'description', 'parameters')}}
+                      for d in model_tool_definitions(self.toolbox.schemas())],
         }})
 
     async def accept_audio(self, data):
         accepted = not self._closed and self.phase not in {'error', 'closed', 'connecting', 'configuration_error'} and (self.condition == REVISION_ENABLED or not is_in_flight(self.current_request))
         if accepted:
-            await self.send({'type': 'input_audio_buffer.append', 'audio': data})
+            accepted = await self.send({'type': 'input_audio_buffer.append', 'audio': data},
+                                       effect_kind='input' if self.study is not None else None)
         else:
             self.trace.record('input.rejected', phase=self.phase)
         return accepted
+
+    async def accept_browser_text(self, text):
+        if self.study is not None:
+            self.trace.record('input.rejected', reason='formal_browser_text_disabled', phase=self.phase)
+            return False
+        await self.accept_text(text)
+        return True
+
+    async def handle_study_event(self, event: dict):
+        if self.study is None:
+            return False
+        from .study import StudyError
+        kind = event.get('type') if isinstance(event, dict) else None
+        event_id = event.get('client_event_id') if isinstance(event, dict) else None
+        try:
+            if kind in {'view.rendered', 'view.render_failed'}:
+                outcome = self.render_tracker.ack(self.study.attempt_id, event)
+                error_code = outcome.get('error_code')
+                status = ('accepted' if outcome.get('accepted') else
+                          'conflict' if error_code == 'client_event_conflict' else 'rejected')
+                if outcome.get('accepted') and outcome.get('complete'):
+                    self._last_rendered_revision = outcome.get('dashboard_revision')
+                receipt = {'type': 'study.receipt', 'client_event_id': event_id,
+                           'event_type': kind, 'status': status, 'receipt': outcome}
+                if error_code:
+                    receipt['error_code'] = error_code
+                await self._emit_control_event(receipt)
+                await self.poll_study()
+                return bool(outcome.get('accepted'))
+            result = self.study.handle_control(event, self.study.clock())
+            receipt = result['receipt']
+            await self._emit_control('study.receipt', client_event_id=event_id,
+                                     event_type=kind, status='accepted', receipt=receipt)
+            if result.get('action') == 'stop':
+                await self._control_stop()
+            await self._emit_control_event(result['state'])
+            if kind == 'trial.start':
+                await self.input_policy('ready')
+            return True
+        except StudyError as error:
+            await self._emit_control('study.receipt', client_event_id=event_id,
+                                     event_type=kind, status=('conflict' if error.code == 'idempotency_conflict' else 'rejected'),
+                                     error_code=error.code)
+            if error.state is not None:
+                await self._emit_control_event(error.state)
+            return False
+        except Exception as error:
+            code = getattr(error, 'code', 'study_persistence_failed')
+            await self._emit_control('study.receipt', client_event_id=event_id,
+                                     event_type=kind, status='rejected', error_code=code)
+            return False
+
+    async def _control_stop(self):
+        old = self.protocol.current
+        self._set_request_phase('settled', terminal_reason='user_stop')
+        self._revise('control_stop')
+        self._requested = None
+        self._resolved.set()
+        self._held_events = []
+        self._held_bytes = 0
+        if old:
+            await self._emit_control('assistant_playback_stop', response_id=old.id, reason='manual_stop')
+        if self._provider_active:
+            await self._publish(self._provider_lock, self.provider_send,
+                                {'event_id': uuid4().hex, 'type': 'response.cancel'})
+        await self.input_policy('ready')
 
     async def playback_stopped(self, response_id, reason):
         if response_id and response_id == self._playback_response and reason == 'natural_end':
@@ -307,6 +516,18 @@ class AnalysisSession:
         text = text.strip()
         decision = classify_utterance_role(text)
         self.trace.record('intent.decision', transcript=text, decision=decision, utterance_id=item_id)
+        if decision == 'analytical_request' and self.study is not None:
+            allowed, finish = self._study_gate('input')
+            if not allowed:
+                if finish:
+                    await self._finish_study_expiry()
+                self.trace.record('input.rejected', reason='study_gate_closed', phase=self.study.phase,
+                                  utterance_id=item_id)
+                self.protocol.resume()
+                self._resolved.set()
+                self._held_events = []
+                self._held_bytes = 0
+                return
         if decision == 'analytical_request' and self.condition == TURN_TAKING and is_in_flight(self.current_request):
             self.trace.record('input.rejected', reason='turn_taking_busy', phase=self.current_request.phase,
                               utterance_id=item_id)
@@ -332,9 +553,13 @@ class AnalysisSession:
         if decision == 'analytical_request':
             previous = self.current_request
             revision = self.dashboard.snapshot()['dashboard_revision']
+            request_id = uuid4().hex
+            received_at_ns = self.study.clock() if self.study is not None else monotonic_ns()
+            if self.study is not None:
+                self.study.record_request(request_id, text, received_at_ns)
             request, received = new_request(
-                previous, request_id=uuid4().hex, transcript=text,
-                utterance_id=utterance_id, received_at_monotonic_ns=monotonic_ns(),
+                previous, request_id=request_id, transcript=text,
+                utterance_id=utterance_id, received_at_monotonic_ns=received_at_ns,
                 dashboard_revision=revision)
             if received.in_flight:
                 superseded = transition(previous, 'superseded', terminal_reason='new_analytical_request')
@@ -346,6 +571,7 @@ class AnalysisSession:
                                   response_id=previous.response_id, superseding_request_id=request.request_id,
                                   previous_phase=previous.phase)
             self.current_request = request
+            self._grounding = ExecutionGrounding(request.request_id, text)
             accepted_request_id = request.request_id
             self.requests[request.request_id] = request
             self._policy_version += 1
@@ -409,15 +635,19 @@ class AnalysisSession:
             self._requested = None
             self._pending_ticket = rid
             try:
+                instructions = build_instructions(self.dataset.description, self.toolbox.schemas(), self.dashboard.snapshot())
+                grounding = self._grounding_for(rid)
+                if grounding:
+                    instructions += grounding.instructions()
                 if not await self.send({'type': 'session.update', 'session': {
-                    'instructions': build_instructions(self.dataset.description, self.toolbox.schemas(), self.dashboard.snapshot())}}, response_id=rid):
+                    'instructions': instructions}}, response_id=rid):
                     self._pending_ticket = None
                     return False
                 if not await self.send({'type': 'response.create'}, response_id=rid):
                     self._pending_ticket = None
                     return False
                 return True
-            except Exception:
+            except Exception as error:
                 # The failed ticket may be a tool follow-up response whose
                 # parent batch task is still tagged with the preceding response.
                 # Resolve failure here while this response still owns the
@@ -426,8 +656,46 @@ class AnalysisSession:
                     self._pending_ticket = None
                 if self._requested == rid:
                     self._requested = None
-                await self._fail('Provider could not start the response.', response_id=rid)
+                await self._fail(str(error) if isinstance(error, ProviderMessageTooLarge)
+                                 else 'Provider could not start the response.', response_id=rid)
                 raise
+
+    def _grounding_for(self, response_id):
+        record = self._grounding
+        return record if record and self._request_for_response(response_id) and (
+            self._response_requests.get(response_id) == record.request_id) else None
+
+    async def _correct_unsupported_claim(self, rid, record, text):
+        reason = record.contradiction(text)
+        if not reason:
+            return False
+        self.trace.record('execution.claim_mismatch', response_id=rid,
+                          request_id=record.request_id, code=reason,
+                          repair_exhausted=record.repair_used)
+        await self.emit('assistant_playback_stop', response_id=rid, reason='execution_claim_mismatch')
+        if not await self._wait_authority(rid) or not self._grounding_for(rid):
+            return True
+        self._playback_response = None
+        if record.repair_used:
+            # A request failure is recoverable: keep the connection and input open.
+            await self.emit('transcript', role='assistant', response_id=rid,
+                            delta='\nExecution check: that claimed change is not verified. '
+                                  'Please rely on the committed charts and tool results.')
+            await self.emit('response_done', response_id=rid)
+            self._set_request_phase('failed', response_id=rid, terminal_reason='execution_claim_mismatch')
+            self.protocol.revoke(rid)
+            await self.input_policy('ready')
+            return True
+        record.repair_used = True
+        record.correction = reason
+        followup = self.protocol.begin_response(self.dashboard.snapshot()['dashboard_revision'])
+        self._bind_request_response(followup.id)
+        self._set_request_phase('reasoning', response_id=followup.id)
+        self._trace_response('response.started', followup)
+        self._requested = followup.id
+        await self.input_policy('followup_generating')
+        await self._pump_response()
+        return True
 
     def _spawn(self, coroutine, *, response_id=None):
         task = asyncio.create_task(coroutine)
@@ -491,8 +759,18 @@ class AnalysisSession:
                     raise ProviderContractError('Provider must acknowledge create_response=false and interrupt_response=false; this model/endpoint cannot safely run this protocol.')
                 self._ready = True
                 snap = self.dashboard.snapshot()
-                await self.emit('init', views=snap['views'], state=snap, dashboard_revision=snap['dashboard_revision'], dataset=self.dataset.description)
+                study_state = None
+                render = None
+                if self.study is not None:
+                    study_state = self.study.provider_ready(snap, self.study.clock())
+                    self._flush_study_evidence()
+                    render = study_state.get('render')
+                await self.emit('init', views=snap['views'], state=snap,
+                                dashboard_revision=snap['dashboard_revision'],
+                                dataset=self.dataset.description, **({'render': render} if render else {}))
                 await self.emit('session_ready')
+                if study_state is not None:
+                    await self._emit_control_event(study_state)
                 await self.input_policy('ready')
             return
         if kind == 'error':
@@ -566,6 +844,8 @@ class AnalysisSession:
             if self._provider_active == provider_id:
                 self._provider_active = None
             response = event['response']
+            grounding = self._grounding_for(rid)
+            spoken = grounding.finish_speech(rid, response) if grounding else ''
             response_status = response.get('status')
             if not isinstance(response_status, str) or response_status not in {'completed', 'cancelled', 'failed', 'incomplete'}:
                 response_status = 'unknown'
@@ -573,6 +853,11 @@ class AnalysisSession:
                                  status=response_status, current=self.protocol.allowed(rid))
             self._trace_response('response.finished', response_id=rid, provider_response_id=provider_id,
                                  status=response_status)
+            if self.journal is not None:
+                self.journal.finish_response(rid,{
+                    'completed':'completed','cancelled':'interrupted',
+                }.get(response_status,'failed'))
+                self._check_journal()
             if self.protocol.allowed(rid) or (self.protocol.current and self.protocol.current.id == rid and self.protocol.current.authority == 'suspended'):
                 if response.get('status') == 'completed':
                     calls = [x for x in response.get('output', []) if x.get('type') == 'function_call']
@@ -580,6 +865,8 @@ class AnalysisSession:
                         self._set_request_phase('tool_execution', response_id=rid)
                         self._spawn(self.run_batch(rid, calls), response_id=rid)
                     else:
+                        if grounding and await self._correct_unsupported_claim(rid, grounding, spoken):
+                            return
                         self._playback_response = rid if rid in self._audio_responses else None
                         await self.emit('response_done', response_id=rid)
                         if self._playback_response is None:
@@ -608,6 +895,9 @@ class AnalysisSession:
                                          actual_playback_observed=False)
                 self._set_request_phase('speaking', response_id=rid)
         elif kind in {'response.audio_transcript.delta', 'response.text.delta', 'response.output_audio_transcript.delta'}:
+            grounding = self._grounding_for(rid)
+            if grounding:
+                grounding.append_speech(rid, event.get('delta', ''))
             await self.emit('transcript', role='assistant', response_id=rid, delta=event.get('delta', ''))
 
     async def _wait_overlap(self):
@@ -634,6 +924,9 @@ class AnalysisSession:
         draft = None
         started = perf_counter()
         results = []
+        snapshot = None
+        call_observations = [{'execution_status':'not_started','result_success':None,
+                              'elapsed_ms':None,'started':None} for _ in calls]
         followup_requested = False
         execution_status = 'failed'
         commit_status = 'failed'
@@ -649,7 +942,8 @@ class AnalysisSession:
                             tools=[{'name': c['name'], 'label': c['name']} for c in calls],
                             changes_dashboard=changes_dashboard)
             undo_mixed = len(calls) > 1 and any(c['name'] == 'undo_dashboard' for c in calls)
-            for call in calls:
+            for call_index, call in enumerate(calls):
+                observation = call_observations[call_index]
                 if not await self._wait_authority(response_id):
                     execution_status = 'failed'
                     commit_status = 'superseded'
@@ -660,10 +954,12 @@ class AnalysisSession:
                     if not isinstance(arguments, dict) or undo_mixed:
                         raise ValueError('Arguments must be an object; undo must be a standalone batch')
                     if results and not results[-1]['success']:
+                        observation['execution_status'] = 'skipped'
                         result = {'success': False, 'payload': {},
                                   'error': {'code': 'skipped', 'message': 'Skipped after an earlier call failed.'}}
                     else:
                         call_started = perf_counter()
+                        observation.update(execution_status='unobserved',started=call_started)
                         self.trace.record('tool.execution_started', response_id=response_id,
                                           request_id=self._response_requests.get(response_id),
                                           batch_id=batch.id, call_id=call['call_id'],
@@ -678,6 +974,9 @@ class AnalysisSession:
                                                   round((perf_counter() - call_started) * 1000)))
                             raise
                         else:
+                            observation.update(execution_status='succeeded' if result.get('success') else 'failed',
+                                result_success=bool(result.get('success')),
+                                elapsed_ms=round((perf_counter() - call_started) * 1000,3))
                             self.trace.record('tool.execution_finished', response_id=response_id,
                                               request_id=self._response_requests.get(response_id),
                                               batch_id=batch.id, call_id=call['call_id'],
@@ -685,6 +984,9 @@ class AnalysisSession:
                                               elapsed_ms=min(86_400_000,
                                                   round((perf_counter() - call_started) * 1000)))
                 except Exception as error:
+                    observation.update(execution_status='failed',result_success=False)
+                    if observation['started'] is not None:
+                        observation['elapsed_ms'] = round((perf_counter() - observation['started']) * 1000,3)
                     result = {'success': False, 'payload': {}, 'error': str(error)}
                 results.append(result)
                 self.trace.record('call.finished', response_id=response_id, batch_id=batch.id, call_id=call['call_id'], success=result['success'])
@@ -698,14 +1000,23 @@ class AnalysisSession:
                 self.trace.record('commit.rejected', response_id=response_id, batch_id=batch.id,
                                   intent_epoch=self.protocol.epoch, current=False, reason='revoked')
                 return
-            snapshot = None
             if successful:
                 # Sole commit boundary: no await or arbitrary tool code inside.
                 self._set_request_phase('committing', response_id=response_id)
                 self._trace_response('dashboard.commit_started', response_id=response_id, batch_id=batch.id,
                                      revision=self.dashboard.snapshot()['dashboard_revision'])
+                study_expired = False
+                commit_now_ns = None
                 with self.protocol.guard():
-                    if self.protocol.authorize_commit(batch.id, self.dashboard.snapshot()['dashboard_revision']):
+                    study_allowed = True
+                    if self.study is not None:
+                        commit_now_ns = self.study.clock()
+                        study_expired = self.study.expire_if_due(commit_now_ns)
+                        if study_expired:
+                            self._close_study_deadline_sync()
+                        study_allowed = self.study.check_effect('commit', commit_now_ns)
+                    if study_allowed and self.protocol.authorize_commit(
+                            batch.id, self.dashboard.snapshot()['dashboard_revision']):
                         try:
                             snapshot = self.dashboard.commit(draft)
                         except ValueError:
@@ -715,6 +1026,9 @@ class AnalysisSession:
                                 raise
                         else:
                             self.protocol.record_commit(batch.id, snapshot['dashboard_revision'])
+                if study_expired:
+                    self._record_study_expiry()
+                    await self._finish_study_expiry()
                 if snapshot is None:
                     commit_status = 'superseded' if not self.protocol.allowed(response_id) else 'conflicted'
                     self._trace_response('dashboard.commit_rejected', batch_id=batch.id, response_id=response_id,
@@ -734,9 +1048,22 @@ class AnalysisSession:
                                  else 'no_change' if changes_dashboard else 'read_only')
                 if commit_status == 'committed':
                     self._trace_response('dashboard.committed', batch_id=batch.id, revision=snapshot['dashboard_revision'], current=True)
+                    render = None
+                    if self.study is not None:
+                        try:
+                            render = self.study.register_commit(snapshot, commit_now_ns)
+                            self._flush_study_evidence()
+                        except Exception as error:
+                            await self._fail('Study evidence could not be queued after commit.', response_id=response_id)
+                            await self._emit_control('trial.state', phase='aborted', freeze_status='failed',
+                                                     remaining_ms=None, answer_status=None,
+                                                     evidence_refs_ready=[], allowed_actions=[],
+                                                     error_code=getattr(error, 'code', 'evidence_persist_failed'))
+                            return
                     if not await self.emit('dashboard_commit', response_id=response_id, batch_id=batch.id,
                                            output_key='browser:commit', dashboard_revision=snapshot['dashboard_revision'],
-                                           views=snapshot['views'], state=snapshot):
+                                           views=snapshot['views'], state=snapshot,
+                                           **({'render': render} if render else {})):
                         return
             else:
                 commit_status = 'failed'
@@ -753,6 +1080,10 @@ class AnalysisSession:
                 results = revised
             outcome = {'execution_status': execution_status, 'commit_status': commit_status,
                        'state_changed': commit_status == 'committed'}
+            grounding = self._grounding_for(response_id)
+            if grounding:
+                grounding.record_batch(batch.id, commit_status,
+                                       self.dashboard.snapshot()['dashboard_revision'], calls, results)
             for call, result in zip(calls, results):
                 if not await self.emit('tool_call', response_id=response_id, batch_id=batch.id,
                                        output_key='browser:call:' + call['call_id'], output_error=not successful,
@@ -764,8 +1095,7 @@ class AnalysisSession:
                     return
                 output = dict(result, **outcome, committed=outcome['state_changed'],
                               dashboard_revision=snapshot['dashboard_revision'] if snapshot else None)
-                if not await self.send({'type': 'conversation.item.create', 'item': {'type': 'function_call_output',
-                       'call_id': call['call_id'], 'output': json.dumps(output, ensure_ascii=False, allow_nan=False)}},
+                if not await self.send(tool_output_event(call['call_id'], output),
                        response_id=response_id, batch_id=batch.id, output_key='model:' + call['call_id'], output_error=not successful):
                     return
             if await self._wait_authority(response_id):
@@ -795,6 +1125,14 @@ class AnalysisSession:
             self.trace.record('batch.outcome', request_id=request_id, response_id=response_id,
                               batch_id=batch.id, call_ids=list(batch.call_ids),
                               **outcome, followup_requested=followup_requested)
+            if self.journal is not None:
+                for call, observation in zip(calls,call_observations):
+                    self.journal.record_tool(call,request_id=request_id,response_id=response_id,batch_id=batch.id,
+                        execution_status=observation['execution_status'],commit_status=commit_status,
+                        result_success=observation['result_success'],elapsed_ms=observation['elapsed_ms'],
+                        dashboard_revision=snapshot['dashboard_revision'] if snapshot is not None else None,
+                        provider_response_id=next((pid for pid,local in self.provider_ids.items() if local == response_id),None))
+                self._check_journal()
             await self.emit('tool_execution_finished', batch_id=batch.id, response_id=response_id,
                             duration_ms=round((perf_counter() - started) * 1000),
                             followup_requested=followup_requested, status=commit_status, **outcome)
@@ -808,4 +1146,7 @@ class AnalysisSession:
         if self._tasks:
             await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
         self.trace.record('session.closed', request_id=self.current_request.request_id if self.current_request else None)
+        if self.journal is not None:
+            self.journal.close()
+            self._check_journal()
         self.trace.close()

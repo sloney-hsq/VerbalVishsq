@@ -1,9 +1,11 @@
 """Standalone research application. Run: python -m uvicorn backend.main:app --port 8001."""
 import asyncio
+import hashlib
 import json
 import math
 import os
 import re
+import subprocess
 import anyio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,14 +17,102 @@ from fastapi.staticfiles import StaticFiles
 from websockets.asyncio.client import connect
 
 from .analytics import load_dataset
+from .prompts import build_instructions
+from .provider_payload import encode_provider_event, ProviderMessageTooLarge
 from .realtime import AnalysisSession, ProviderContractError
+from .render_tracker import RenderTracker
+from .study import StudyController
+from .study_manifest import load_assignment
+from .study_store import StudyStore
 from .trace import Trace, resolve_experiment_context
+from .conversation_log import ConversationLogError, SessionJournal
 
 ROOT = Path(__file__).resolve().parents[1]
 _ACK_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$')
 _ACK_REASONS = {'natural_end', 'interrupted', 'manual_stop', 'intent_revision',
                 'provider_response_failed', 'response_completed'}
 _ACK_STAGES = {'state_projected', 'rendered', 'committed'}
+_STUDY_CLIENT_EVENTS = {
+    'trial.start', 'trial.task_presented', 'answer.save', 'answer.submit',
+    'questionnaire.submit', 'control.stop', 'view.rendered', 'view.render_failed',
+}
+
+
+def _canonical_sha256(value):
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True,
+                         separators=(',', ':'), allow_nan=False).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _git_provenance():
+    try:
+        commit = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'], cwd=ROOT, check=True,
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        dirty = bool(subprocess.run(
+            ['git', 'status', '--porcelain', '--untracked-files=all'], cwd=ROOT,
+            check=True, capture_output=True, text=True, timeout=5,
+        ).stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        raise ValueError('Formal study provenance requires a readable Git checkout.') from None
+    return commit, dirty
+
+
+def _resolve_path(value, label):
+    if not isinstance(value, str) or not value:
+        raise ValueError(f'{label} is required')
+    path = Path(value)
+    return path if path.is_absolute() else (ROOT / path).resolve()
+
+
+def _study_config(settings):
+    raw = settings.get('study')
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or raw.get('enabled') is not True:
+        raise ValueError('study.enabled must be true when study configuration is present')
+    allowed = {'enabled', 'mode', 'schedule_dir', 'data_dir', 'consent', 'expected_provenance'}
+    if not set(raw).issubset(allowed):
+        raise ValueError('unknown study configuration field')
+    mode = raw.get('mode', 'formal')
+    if mode not in {'formal', 'preflight'}:
+        raise ValueError('study.mode must be formal or preflight')
+    consent = raw.get('consent')
+    if (not isinstance(consent, dict) or set(consent) != {
+            'transcript', 'analysis_evidence', 'final_answer'} or
+            any(type(value) is not bool for value in consent.values()) or
+            not consent['analysis_evidence'] or not consent['final_answer']):
+        raise ValueError('study consent is invalid')
+    expected = raw.get('expected_provenance')
+    if mode == 'formal' and (not isinstance(expected, dict) or set(expected) != {
+            'git_commit', 'git_dirty', 'model', 'prompt_sha256', 'tool_schema_sha256',
+            'dataset_version', 'initial_dashboard_sha256'}):
+        raise ValueError('formal study expected_provenance is incomplete')
+    return {
+        'mode': mode,
+        'schedule_dir': _resolve_path(raw.get('schedule_dir'), 'study.schedule_dir'),
+        'data_dir': _resolve_path(raw.get('data_dir'), 'study.data_dir'),
+        'consent': dict(consent),
+        'expected_provenance': dict(expected or {}),
+    }
+
+
+def _runtime_provenance(session, model):
+    commit, dirty = _git_provenance()
+    snapshot = session.dashboard.snapshot()
+    schemas = session.toolbox.schemas()
+    description = session.dataset.description
+    return {
+        'git_commit': commit,
+        'git_dirty': dirty,
+        'model': model,
+        'prompt_sha256': hashlib.sha256(
+            build_instructions(description, schemas, snapshot).encode('utf-8')).hexdigest(),
+        'tool_schema_sha256': _canonical_sha256(schemas),
+        'dataset_version': description.get('version', description.get('dataset_version')),
+        'initial_dashboard_sha256': _canonical_sha256(snapshot),
+    }
 
 
 def _ack_id(value):
@@ -128,6 +218,15 @@ def create_app(config=None, *, provider_factory=None):
     @asynccontextmanager
     async def lifespan(app):
         settings = read_config(config)
+        log_enabled = settings.get('conversation_logging',False)
+        if type(log_enabled) is not bool:
+            raise ValueError('conversation_logging must be a boolean')
+        app.state.conversation_log_dir = (
+            _resolve_path(settings.get('conversation_log_dir','conversation_logs'),'conversation_log_dir')
+            if log_enabled else None)
+        if app.state.conversation_log_dir is not None and app.state.conversation_log_dir.resolve().is_relative_to(
+                (ROOT / 'frontend' / 'dist').resolve()):
+            raise ValueError('conversation_log_dir must not be inside the public frontend build')
         interface = Path(settings['interface'])
         if not interface.is_absolute():
             interface = ROOT / interface
@@ -137,6 +236,14 @@ def create_app(config=None, *, provider_factory=None):
                 data_config[name] = str((ROOT / data_config[name]).resolve())
         app.state.dataset = load_dataset(interface, data_config)
         app.state.settings = settings
+        app.state.study_config = _study_config(settings)
+        if app.state.study_config is not None:
+            app.state.study_store = StudyStore(app.state.study_config['data_dir'])
+            app.state.study_store.recover_incomplete()
+            app.state.render_tracker = RenderTracker()
+        else:
+            app.state.study_store = None
+            app.state.render_tracker = None
         app.state.busy = False
         try:
             yield
@@ -157,12 +264,29 @@ def create_app(config=None, *, provider_factory=None):
     async def websocket(browser: WebSocket):
         await browser.accept()
         settings = app.state.settings
+        assignment = None
+        study_settings = app.state.study_config
         try:
-            experiment_context = resolve_experiment_context(
-                browser.query_params, settings, app.state.dataset.description.get('dataset_id'))
-            consent = settings.get('trace_consent', False)
-            if type(consent) is not bool:
-                raise ValueError('trace_consent must be a boolean')
+            dataset_id = app.state.dataset.description.get('dataset_id')
+            if study_settings is not None:
+                if set(browser.query_params.keys()) - {'assignment_id'}:
+                    raise ValueError('formal study identity is server-assigned')
+                assignment_id = browser.query_params.get('assignment_id')
+                assignment = load_assignment(study_settings['schedule_dir'], assignment_id, dataset_id)
+                experiment_context = {
+                    'participant_id': assignment['participant_id'],
+                    'trial_id': assignment['trial_id'],
+                    'task_id': assignment['task_id'],
+                    'dataset_id': dataset_id,
+                    'condition': assignment['condition'],
+                }
+                consent = study_settings['consent']['transcript']
+            else:
+                experiment_context = resolve_experiment_context(
+                    browser.query_params, settings, dataset_id)
+                consent = settings.get('trace_consent', False)
+                if type(consent) is not bool:
+                    raise ValueError('trace_consent must be a boolean')
         except (TypeError, ValueError):
             await browser.send_json({'type': 'configuration_error', 'message': 'Invalid experiment context or trace configuration.'})
             await browser.close(code=1008)
@@ -178,7 +302,9 @@ def create_app(config=None, *, provider_factory=None):
         # Single event loop, no await between checking and claiming the session.
         app.state.busy = True
         trace = None
+        journal = None
         session = None
+        study = None
         tasks = []
         try:
             trace_dir = Path(settings.get('trace_dir', ROOT / 'traces'))
@@ -188,6 +314,9 @@ def create_app(config=None, *, provider_factory=None):
                           consent=consent, context=experiment_context)
             if trace.failed:
                 raise RuntimeError('Research trace could not be initialized.')
+            if app.state.conversation_log_dir is not None and consent:
+                journal = SessionJournal(app.state.conversation_log_dir,
+                                         session_id=trace.session_id,consent=consent)
             model = os.environ.get('QWEN_REALTIME_MODEL', 'qwen3.5-omni-plus-realtime')
             url = os.environ.get('QWEN_REALTIME_URL', 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime')
             context = provider_factory() if provider_factory else connect(
@@ -195,7 +324,7 @@ def create_app(config=None, *, provider_factory=None):
                 max_size=8 * 1024 * 1024, open_timeout=20)
             async with context as provider:
                 async def provider_send(event):
-                    await provider.send(json.dumps(event, ensure_ascii=False, allow_nan=False))
+                    await provider.send(encode_provider_event(event))
                 session = AnalysisSession(
                     app.state.dataset,
                     browser.send_json,
@@ -203,7 +332,22 @@ def create_app(config=None, *, provider_factory=None):
                     condition,
                     trace,
                     initial_dashboard=settings.get('initial_dashboard'),
+                    journal=journal,
                 )
+                if study_settings is not None:
+                    provenance = _runtime_provenance(session, model)
+                    if study_settings['mode'] == 'formal':
+                        if provenance['git_dirty'] or provenance != study_settings['expected_provenance']:
+                            raise ProviderContractError(
+                                'Formal study provenance does not match the frozen configuration.')
+                    attempt = app.state.study_store.begin_attempt(
+                        assignment, trace.session_id, study_settings['consent'], provenance)
+                    study = StudyController(
+                        assignment, attempt['attempt_id'], app.state.study_store,
+                        app.state.render_tracker)
+                    study.renderer_version = provenance['git_commit']
+                    session.study = study
+                    session.render_tracker = app.state.render_tracker
                 await session.configure(os.environ.get('QWEN_VOICE', 'Ethan'))
 
                 async def receive_browser():
@@ -221,7 +365,9 @@ def create_app(config=None, *, provider_factory=None):
                             if isinstance(data, str) and len(data) < 256_000:
                                 await session.accept_audio(data)
                         elif kind == 'text' and session._ready:
-                            await session.accept_text(event.get('text', ''))
+                            await session.accept_browser_text(event.get('text', ''))
+                        elif kind in _STUDY_CLIENT_EVENTS and study is not None:
+                            await session.handle_study_event(event)
                         elif kind in {'playback_stopped', 'dashboard_projection_ack', 'dashboard.rendered'}:
                             safe_ack = _safe_ack(event, session)
                             if safe_ack is not None:
@@ -240,8 +386,15 @@ def create_app(config=None, *, provider_factory=None):
                         await asyncio.sleep(0.05)
                     raise RuntimeError('Research trace failed; formal trial stopped.')
 
+                async def monitor_study():
+                    while True:
+                        await asyncio.sleep(0.05)
+                        await session.poll_study()
+
                 tasks = [asyncio.create_task(receive_browser()), asyncio.create_task(receive_provider()),
                          asyncio.create_task(session.failed.wait()), asyncio.create_task(monitor_trace_failure())]
+                if study is not None:
+                    tasks.append(asyncio.create_task(monitor_study()))
                 done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     task.result()
@@ -251,10 +404,12 @@ def create_app(config=None, *, provider_factory=None):
             if trace:
                 trace.record('transport.failed', error_type=type(error).__name__)
             try:
-                event = error.browser_event() if isinstance(error, ProviderContractError) else {
+                event = ({'type': 'configuration_error', 'code': 'provider_message_too_large',
+                          'message': str(error)} if isinstance(error, ProviderMessageTooLarge) else
+                         error.browser_event() if isinstance(error, (ProviderContractError,ConversationLogError)) else {
                     'type': 'error',
                     'message': 'Live provider connection failed; check the selected model, endpoint and credentials.',
-                }
+                })
                 await browser.send_json(event)
             except (RuntimeError, WebSocketDisconnect):
                 pass
@@ -267,6 +422,8 @@ def create_app(config=None, *, provider_factory=None):
                 await asyncio.gather(*tasks, return_exceptions=True)
                 try:
                     if session:
+                        if study is not None and study.phase not in {'completed', 'aborted'}:
+                            study.abort('transport_closed', study.clock())
                         await session.close()
                     elif trace:
                         trace.close()
@@ -281,6 +438,8 @@ def create_app(config=None, *, provider_factory=None):
                         except Exception:
                             pass
                 finally:
+                    if journal is not None:
+                        journal.close()
                     app.state.busy = False
 
     build = ROOT / 'frontend' / 'dist'

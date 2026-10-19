@@ -1,0 +1,26 @@
+:root {
+  --vv-background: #f3f5f8;
+  --vv-surface: #ffffff;
+  --vv-surface-soft: #f8fafc;
+  --vv-text: #18283d;
+  --vv-muted: #607187;
+  --vv-border: #dfe5ed;
+  --vv-accent: #275eca;
+  --vv-accent-soft: #edf3ff;
+  --vv-gap: clamp(16px, .72vw, 28px);
+  --vv-radius: clamp(12px, .5vw, 18px);
+  --vv-font: clamp(14px, .52vw, 20px);
+  font-family: 'Segoe UI', Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--vv-text);
+  background: var(--vv-background);
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; }
+body { font-size: var(--vv-font); }
+button, input, textarea, select { font: inherit; }
+button:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #7299e8; outline-offset: 3px; }
+button { -webkit-tap-highlight-color: transparent; }
+::selection { color: #173c7d; background: #dbe8ff; }
+* { scrollbar-color: #bdc8d6 transparent; scrollbar-width: thin; }
+#vg-tooltip-element { max-width: min(520px, 90vw); font-family: 'Segoe UI', sans-serif; font-size: clamp(13px, .48vw, 18px); line-height: 1.55; border: 1px solid #dfe5ed; border-radius: 10px; box-shadow: 0 10px 32px #17283d1a; }

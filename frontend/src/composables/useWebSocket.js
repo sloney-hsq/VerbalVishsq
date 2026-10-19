@@ -18,6 +18,7 @@ import {
 } from "../protocol/rrtProjector";
 import { applyRrtEffects } from "../protocol/rrtEffects";
 import { SessionProjection } from '../sessionProjection.js';
+import { createStudyProtocol, dashboardSnapshotFromMessage } from '../studyProtocol.js';
 
 export { legacyToolItemPayload, projectLegacyEvents } from "../rrtLegacyProjection";
 
@@ -32,6 +33,7 @@ export function useWebSocket(audioPlayer) {
   const runtime = useRuntimeStore();
   const { toolRunning } = storeToRefs(runtime);
   const socket = ref(null);
+  const studyProtocol = createStudyProtocol();
 
   let activeResponseId = null;
   let analysisId = createAnalysisId();
@@ -148,6 +150,22 @@ export function useWebSocket(audioPlayer) {
         runtime.updateDashboardState(
           message.state || { views: message.views || [] },
         );
+        runtime.setRenderEnvelope(message.render);
+        break;
+
+      case "trial.state":
+        runtime.applyStudyState(message);
+        break;
+
+      case "study.receipt":
+        if (studyProtocol.applyReceipt(message)) runtime.applyStudyReceipt(message);
+        break;
+
+      case "trial.frozen":
+        if (dashboard.applyDashboardCommit(dashboardSnapshotFromMessage(message))) {
+          runtime.updateDashboardState(message.state || { views: message.views || [] });
+        }
+        runtime.setRenderEnvelope(message.render);
         break;
 
       case "configuration_error":
@@ -268,6 +286,7 @@ export function useWebSocket(audioPlayer) {
           revision: message.dashboard_revision,
         })) {
           runtime.updateDashboardState(message.state || {});
+          runtime.setRenderEnvelope(message.render);
           void nextTick().then(() => sendRrtAck({type:'dashboard_projection_ack', batch_id:message.batch_id,
             response_id:message.response_id, dashboard_revision:message.dashboard_revision}));
         }
@@ -382,6 +401,14 @@ export function useWebSocket(audioPlayer) {
     return true;
   }
 
+  function sendStudyControl(type, payload = {}, retryEvent = null) {
+    if (!socket.value || socket.value.readyState !== WebSocket.OPEN) return null;
+    const event = studyProtocol.queue(type, payload, undefined, retryEvent);
+    socket.value.send(JSON.stringify(event));
+    runtime.noteStudyControl(event);
+    return event;
+  }
+
   function disconnect() {
     audioPlayer?.setCaptureBlocked?.(true);
     audioPlayer?.stopAssistantAudio?.({
@@ -441,6 +468,7 @@ export function useWebSocket(audioPlayer) {
     runtime,
     connect,
     sendAudio,
+    sendStudyControl,
     disconnect,
   };
 }

@@ -38,22 +38,26 @@ function base(view, presentation = null) {
   const measure = ['color','y','x'].map(channel => view.visual?.encoding?.[channel])
     .find(field => view.columns?.[field]?.type === 'quantitative');
   const rows = presentation?.data || view.data || [];
-  return {$schema:'https://vega.github.io/schema/vega-lite/v6.json',width:'container',height:presentation?.plotHeight || chartHeightForView(view),
+  const typography = presentation?.typography || {
+    axisLabel:12,axisTitle:12,legendLabel:12,legendTitle:12,
+  };
+  return {$schema:'https://vega.github.io/schema/vega-lite/v6.json',width:presentation?.fitWidth ?? presentation?.plotWidth ?? 'container',height:presentation?.plotHeight || chartHeightForView(view),
     padding: {left:4,right:8,top:6,bottom:4},
     config: {
       font:'Segoe UI, Microsoft YaHei, sans-serif',
       view:{stroke:null},
       axis:{domain:false,ticks:false,labelColor:'#64748b',titleColor:'#475569',
-        labelFontSize:12,titleFontSize:12,titleFontWeight:400,labelPadding:8,titlePadding:12,
+        labelFontSize:typography.axisLabel,titleFontSize:typography.axisTitle,titleFontWeight:500,labelPadding:8,titlePadding:12,
         gridColor:'#edf1f5',tickCount:5},
       axisDiscrete:{grid:false,labelAngle:0,labelLimit:180},
-      legend:{orient:'top',direction:'horizontal',columns:presentation?.legendColumns || 2,titleFontSize:12,titleColor:'#64748b',
-        labelFontSize:12,labelColor:'#475569',labelLimit:160,symbolSize:70,padding:0,offset:12},
+      legend:{orient:'top',direction:'horizontal',columns:presentation?.legendColumns || 2,
+        titleFontSize:typography.legendTitle,titleColor:'#64748b',titleFontWeight:600,
+        labelFontSize:typography.legendLabel,labelColor:'#475569',labelLimit:180,symbolSize:80,padding:0,offset:12},
       bar:{color:'#447b9f',binSpacing:2},
-      line:{strokeWidth:2},
-      point:{size:36,filled:true},
+      line:{strokeWidth:typography.axisLabel >= 14 ? 2.5 : 2},
+      point:{size:typography.axisLabel >= 14 ? 48 : 40,filled:true},
     },
-    autosize:{type:'fit',contains:'padding',resize:true},data:{values:rows.map((row,index) => {
+    autosize:{type:presentation?.plotWidth && !presentation?.fitWidth ? 'pad' : 'fit',contains:'padding',resize:true},data:{values:rows.map((row,index) => {
       const sourceIndex = Number.isInteger(row.__source_index) ? row.__source_index : index;
       return {...row,__row_order:sourceIndex,__valid_count:view.metadata?.row_valid_counts?.[sourceIndex]?.[measure]};
     })}};
@@ -95,6 +99,9 @@ export function buildChartSpec(view, presentation = null) {
     const categories = new Set((view.data || []).map(row => row[horizontal ? y : x]));
     if (categories.size <= 5 && !color) spec.mark.size = 48;
     spec.encoding = {x:axis(x),y:axis(y),tooltip:tool(x,y,color)};
+    if (!horizontal && presentation?.categoryAxis) {
+      spec.encoding.x.axis = {...spec.encoding.x.axis,...presentation.categoryAxis};
+    }
     const quantitative = horizontal ? spec.encoding.x : spec.encoding.y;
     quantitative.stack = visual.stack && visual.stack !== 'none' ? visual.stack : null;
     if (color && visual.stack !== 'zero' && visual.stack !== 'normalize') {
@@ -112,11 +119,19 @@ export function buildChartSpec(view, presentation = null) {
     spec.mark = {type:'rect',tooltip:true};
     spec.encoding = {x:axis(x),y:axis(y),color:encoding(view,color,'legend'),tooltip:tool(x,y,color)};
     if (view.columns?.[y]?.type !== 'quantitative') {
-      spec.encoding.y.axis = {...spec.encoding.y.axis,labelLimit:220,labelFontSize:12};
+      spec.encoding.y.axis = {...spec.encoding.y.axis,labelLimit:presentation?.axisLabelLimit || 220,
+        labelFontSize:presentation?.typography?.axisLabel || 12};
       if (presentation?.visibleDomain) spec.encoding.y.sort = presentation.visibleDomain;
     }
     if (view.columns?.[color]?.type === 'quantitative') {
-      spec.encoding.color.legend = {...spec.encoding.color.legend,orient:'top',direction:'horizontal',gradientLength:240,titleOrient:'left'};
+      spec.encoding.color.legend = {...spec.encoding.color.legend,orient:'top',direction:'horizontal',
+        gradientLength:presentation?.typography?.axisLabel >= 14 ? 320 : 240,titleOrient:'left'};
+      if (presentation?.heatmapLegend) {
+        const legend = presentation.heatmapLegend;
+        spec.encoding.color.legend = {...spec.encoding.color.legend,
+          gradientLength:legend.gradientLength,titleOrient:'top',titleAnchor:'start',
+          title:wrapLegendTitle(spec.encoding.color.title,legend.titleLineLength),tickCount:legend.tickCount};
+      }
       if (presentation?.colorDomain) spec.encoding.color.scale = {domain:presentation.colorDomain};
     }
     if (view.result_kind === 'binned_2d') {
@@ -193,13 +208,25 @@ export function buildChartSpec(view, presentation = null) {
     delete facetSpec.spec.height;
     delete facetSpec.spec.autosize;
     spec = {...base(view,presentation),data:transformedData,facet:facetSpec.facet,spec:facetSpec.spec};
+    delete spec.width;
+    delete spec.height;
     spec.autosize = {type:'pad',contains:'padding',resize:true};
     spec.columns = presentation?.facetColumns || 1;
-    spec.spec.width = 260;
-    spec.spec.height = 220;
+    spec.spec.width = presentation?.facetWidth || 260;
+    spec.spec.height = presentation?.facetHeight || 220;
     if (visual.scales?.resolve === 'independent') spec.resolve = {scale:{y:'independent'}};
   }
   spec.usermeta = {columns:view.columns,observation_unit:view.metadata?.observation_unit,
     effective_filters:view.metadata?.effective_filters,sampling:view.metadata?.sampling};
   return spec;
+}
+
+function wrapLegendTitle(title, lineLength) {
+  const lines = [];
+  for (const word of String(title || '').split(/\s+/)) {
+    const last = lines.length - 1;
+    if (last >= 0 && lines[last].length + word.length + 1 <= lineLength) lines[last] += ` ${word}`;
+    else lines.push(word);
+  }
+  return lines;
 }

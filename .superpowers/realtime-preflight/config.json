@@ -1,0 +1,8 @@
+{
+  "interface": "datasets/olist/interface.py",
+  "dataset": {"data_dir": "datasets/olist/data"},
+  "trace_dir": ".superpowers/realtime-preflight/traces",
+  "trace_consent": true,
+  "conversation_logging": true,
+  "conversation_log_dir": ".superpowers/realtime-preflight/conversation_logs"
+}

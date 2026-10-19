@@ -4,7 +4,7 @@ import { compile } from 'vega-lite';
 import * as vega from 'vega';
 import { reactive } from 'vue';
 import { createSpec } from '../src/specFactory.js';
-import { heatmapPresentation } from '../src/chartLayout.js';
+import { chartLayoutForView, heatmapPresentation } from '../src/chartLayout.js';
 
 const cols = {
   cohort: {type:'nominal',label:'Cohort'}, period:{type:'temporal',label:'Period'},
@@ -35,6 +35,25 @@ test('six typed chart families compile, and representative SVG renders', async (
   const svg = await new vega.View(vega.parse(compile({...createSpec(examples[4]),width:300,height:200}).spec),
     {renderer:'svg'}).toSVG();
   assert.match(svg, /<svg/);
+});
+
+test('bounded plots use an inset integer width with fit autosizing, not a container-rounded overflow', async () => {
+  const source = view('bar',{x:'cohort',y:'score'},[{cohort:'A',score:4},{cohort:'B',score:8}]);
+  const presentation = heatmapPresentation(source,{},2048,297.03,360.97);
+  for (const candidate of [source,{...source,visual:undefined,x_field:'cohort',y_field:'score'}]) {
+    const spec = createSpec(candidate,null,presentation);
+    assert.equal(spec.width,358);
+    assert.equal(spec.height,295);
+    assert.equal(spec.autosize.type,'fit');
+    assert.equal(spec.autosize.contains,'padding');
+    const rendered = new vega.View(vega.parse(compile(spec).spec),{renderer:'svg'});
+    const svg = await rendered.toSVG();
+    rendered.finalize();
+    assert.match(svg,/<svg[^>]*width="358"[^>]*height="295"/);
+    assert.match(svg,/Cohort/);
+    assert.match(svg,/Score/);
+    assert.deepEqual(source.data,[{cohort:'A',score:4},{cohort:'B',score:8}]);
+  }
 });
 
 test('box plot uses summary fields; histogram uses explicit bin endpoints', () => {
@@ -82,6 +101,17 @@ test('metric sort ranks bar categories on either axis', () => {
   assert.deepEqual(horizontal.encoding.y.sort,{field:'score',op:'mean',order:'ascending'});
 });
 
+test('dense bar labels rotate without changing category order or metric sort', () => {
+  const target = {...view('bar',{x:'cohort',y:'score'},Array.from({length:10},(_,index) => ({cohort:`Long category ${index}`,score:10-index}))),
+    visual:{type:'bar',encoding:{x:'cohort',y:'score'},sort:{field:'score',direction:'desc'}}};
+  const presentation = chartLayoutForView(target,1400);
+  const spec = createSpec(target,null,presentation);
+  assert.equal(spec.encoding.x.axis.labelAngle,-32);
+  assert.equal(spec.encoding.x.axis.labelOverlap,false);
+  assert.deepEqual(spec.encoding.x.sort,{field:'score',op:'mean',order:'descending'});
+  assert.equal(spec.data.values.length,10);
+});
+
 test('ordinal order and palette are declared by metadata, not a domain name', () => {
   const custom = createSpec(view('bar',{x:'cohort',y:'score',color:'rating_band'},
     [{cohort:'A',score:1,rating_band:3},{cohort:'A',score:2,rating_band:1}],
@@ -127,18 +157,47 @@ test('paged heatmaps retain global scales, stable category order, and readable l
     {...cols,group:{type:'nominal',source_field:'product_category'}});
   const presentation = heatmapPresentation(heat,{pageIndex:1,mode:'paged'},920);
   const spec = createSpec(heat,null,presentation);
-  assert.equal(spec.height,512);
+  assert.equal(spec.height,presentation.plotHeight);
+  assert.ok(spec.height >= 512);
   assert.equal(spec.data.values.length,20);
   assert.deepEqual(spec.encoding.y.sort,presentation.visibleDomain);
   assert.deepEqual(spec.encoding.color.scale.domain,[0,69]);
   assert.equal(spec.encoding.color.legend.orient,'top');
   assert.equal(spec.encoding.y.title,'Product category');
   assert.equal(spec.encoding.y.axis.labelLimit,220);
+  assert.equal(spec.width,260);
+  assert.equal(spec.autosize.type,'pad');
   const points = createSpec(view('scatter',{x:'x_value',y:'y_value'},[{x_value:2,y_value:3}],
     {x_value:{type:'quantitative',source_field:'price',unit:'BRL'},
      y_value:{type:'quantitative',source_field:'freight_value',unit:'BRL'}},'points'));
   assert.equal(points.encoding.x.title,'Price (BRL)');
   assert.equal(points.encoding.y.title,'Freight value (BRL)');
+});
+
+test('4K presentation raises chart typography while preserving semantic encodings', () => {
+  const target = view('bar',{x:'cohort',y:'score'},[{cohort:'A',score:4}]);
+  const presentation = chartLayoutForView(target,3200);
+  const spec = createSpec(target,null,presentation);
+  assert.equal(spec.config.axis.labelFontSize,14);
+  assert.equal(spec.config.axis.titleFontSize,14);
+  assert.equal(spec.config.legend.labelFontSize,13);
+  assert.equal(spec.height,presentation.plotHeight);
+  assert.equal(spec.encoding.x.field,'cohort');
+  assert.equal(spec.encoding.y.field,'score');
+});
+
+test('scaled 4K heatmap legend retains its full title above a bounded gradient', () => {
+  const target = view('heatmap',{x:'cohort',y:'group',color:'score'},
+    Array.from({length:30},(_,index) => ({cohort:'A',group:`C${index}`,score:index / 100})),
+    {...cols,group:{type:'nominal'},score:{type:'quantitative',label:'Late-delivery ratio',unit:'ratio'}});
+  const presentation = heatmapPresentation(target,{pageIndex:0},1470);
+  const spec = createSpec(target,null,presentation);
+  assert.equal(spec.encoding.color.legend.titleOrient,'top');
+  assert.equal(spec.encoding.color.legend.gradientLength,90);
+  assert.deepEqual(spec.encoding.color.legend.title,['Late-delivery','ratio (ratio)']);
+  assert.equal(spec.encoding.color.legend.format,'.1%');
+  assert.deepEqual(spec.encoding.color.scale.domain,[0,0.29]);
+  assert.equal(spec.encoding.y.axis.labelLimit,100);
 });
 
 test('percentage points and correlations have distinct numeric formats', () => {
@@ -186,6 +245,11 @@ test('facets use responsive columns and child dimensions without fit autosize', 
   assert.equal(narrow.columns,1);
   assert.equal(wide.autosize.type,'pad');
   assert.equal(Object.hasOwn(wide.spec,'autosize'),false);
+  assert.equal(Object.hasOwn(wide,'width'),false);
+  assert.equal(Object.hasOwn(wide,'height'),false);
+  assert.equal(Object.hasOwn(narrow,'width'),false);
+  assert.equal(typeof wide.spec.width,'number');
+  assert.equal(typeof wide.spec.height,'number');
 });
 
 test('period and quantile result tooltips include declared context fields', () => {
