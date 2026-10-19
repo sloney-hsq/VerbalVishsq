@@ -1,5 +1,9 @@
 # VerbalVis agent principles
 
+## Current study scope
+
+The current approved scope is a between-subjects study with 12 participants, one formal task and one voice condition per participant: 6 revision_enabled and 6 turn_taking. Each condition assigns 3 participants to each of the two task-pool 2.0 tasks. Do not implement a voice/text comparison, crossover allocation, or a second formal task per participant. The updated design and engineering plan are pending implementation; see [study design](docs/superpowers/specs/2026-10-19-voice-policy-between-study-design.md) and [implementation plan](docs/superpowers/plans/2026-10-19-voice-policy-between-study.md). Preserve the historical pilot and Trace v2.
+
 ## Product language: English
 
 The application is demonstrated and evaluated by an international visualization research audience. English is the required product language.
